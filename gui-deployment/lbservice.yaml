@@ -1,0 +1,42 @@
+apiVersion: isovalent.com/v1alpha1
+kind: LBBackendPool
+metadata:
+  name: ilb-gui-pool
+  namespace: default
+spec:
+  backendType: K8sService
+  backends:
+    - k8sServiceRef:
+        name: ilb-gui
+      port: 8080
+      weight: 1
+  healthCheck:
+    http:
+      path: /api/namespaces
+    healthyThreshold: 1
+    unhealthyThreshold: 2
+    intervalSeconds: 10
+---
+apiVersion: isovalent.com/v1alpha1
+kind: LBVIP
+metadata:
+  name: ilb-gui
+  namespace: default
+spec:
+  ipv4Request: 172.20.0.2
+---
+apiVersion: isovalent.com/v1alpha1
+kind: LBService
+metadata:
+  name: ilb-gui
+  namespace: default
+spec:
+  vipRef:
+    name: ilb-gui
+  port: 8080
+  applications:
+    httpProxy:
+      routes:
+        - backendRef:
+            name: ilb-gui-pool
+          match: {}

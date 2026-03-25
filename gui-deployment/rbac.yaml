@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ilb-gui
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ilb-gui
+rules:
+  # CRD resources managed by the GUI
+  - apiGroups: ["isovalent.com"]
+    resources:
+      - lbservices
+      - lbvips
+      - lbbackendpools
+      - lbdeployments
+      - lbippools
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["isovalent.com"]
+    resources:
+      - isovalentbgpclusterconfigs
+      - isovalentbgppeerconfigs
+      - isovalentbgpadvertisements
+      - isovalentbfdprofiles
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # Cilium nodes
+  - apiGroups: ["cilium.io"]
+    resources: ["ciliumnodes"]
+    verbs: ["get", "list"]
+  # Namespaces
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "create"]
+  # Secrets (TLS, basic-auth)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ilb-gui
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ilb-gui
+subjects:
+  - kind: ServiceAccount
+    name: ilb-gui
+    namespace: default

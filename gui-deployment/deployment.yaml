@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ilb-gui
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ilb-gui
+  template:
+    metadata:
+      labels:
+        app: ilb-gui
+    spec:
+      serviceAccountName: ilb-gui
+      containers:
+        - name: ilb-gui
+          image: ilb-gui:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            # kubectl will use in-cluster ServiceAccount automatically
+            # cilium CLI needs context — point it at the in-cluster API server
+            - name: CILIUM_K8S_NAMESPACE
+              value: kube-system
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ilb-gui
+  namespace: default
+spec:
+  selector:
+    app: ilb-gui
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
