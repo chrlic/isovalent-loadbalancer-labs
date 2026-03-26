@@ -4,6 +4,10 @@ This guide walks through deploying the Isovalent Load Balancer (ILB) on a Kind c
 running on a single RHEL/CentOS host, including BGP peering, external backend connectivity,
 and all the routing fixes required to make it work in this topology.
 
+> **Note:** Isovalent Load Balancer is an enterprise-grade, officially supported product by Isovalent/Cisco.
+> The management GUI described in this guide is a community best-effort tool — it is not an official
+> Isovalent product and comes with no guarantees of correctness, completeness, or ongoing support.
+
 ---
 
 ## Lab Topology

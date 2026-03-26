@@ -2,6 +2,10 @@
 
 A hands-on lab for deploying [Isovalent](https://isovalent.com/) ILB (Layer 7 Load Balancer) on a [Kind](https://kind.sigs.k8s.io/) cluster with BGP peering, external backend VMs, and a browser-based management UI.
 
+> **Note:** Isovalent Load Balancer is an enterprise-grade, officially supported product by Isovalent/Cisco.
+> The management GUI in this repository is a community best-effort tool — it is not an official Isovalent product
+> and comes with no guarantees of correctness, completeness, or ongoing support.
+
 ---
 
 ## What's in this repo
