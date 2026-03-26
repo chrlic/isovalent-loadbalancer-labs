@@ -157,6 +157,10 @@ class Handler(BaseHTTPRequestHandler):
                 self.serve_file("index.html", "text/html")
                 return
 
+            if path == "/favicon.ico":
+                self.serve_file("favicon.ico", "image/x-icon")
+                return
+
             # Namespaces list
             if path == "/api/namespaces":
                 self.send_json(get_namespaces())
@@ -518,6 +522,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", len(data))
+            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(data)
         except FileNotFoundError:

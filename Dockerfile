@@ -5,6 +5,7 @@ WORKDIR /app
 # Copy application files
 COPY index.html .
 COPY server.py .
+COPY favicon.ico .
 
 # Copy CLI binaries from build context
 COPY bin/kubectl /usr/local/bin/kubectl

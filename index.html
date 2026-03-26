@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Isovalent LB GUI</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/vuetify@3.5.4/dist/vuetify.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet"/>
@@ -934,41 +935,47 @@
               </div>
               <v-alert v-if="poolHealth.error" type="warning" variant="tonal" density="compact" class="mb-3">{{ poolHealth.error }}</v-alert>
               <template v-if="poolHealth.endpoints.length">
-                <v-table density="compact">
+                <table class="w-100" style="border-collapse:collapse">
                   <thead>
-                    <tr>
-                      <th>Endpoint</th>
-                      <th>T2 Node</th>
-                      <th>Service</th>
-                      <th>Healthy</th>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.12)">
+                      <th class="text-left pa-2 text-caption font-weight-medium">Backend Endpoint</th>
+                      <th class="text-left pa-2 text-caption font-weight-medium">Seen from T2 Node</th>
+                      <th class="text-left pa-2 text-caption font-weight-medium">LBService</th>
+                      <th class="text-left pa-2 text-caption font-weight-medium">Health</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(ep, i) in poolHealth.endpoints" :key="i">
-                      <td class="mono">{{ ep.endpoint }}</td>
-                      <td class="mono text-caption">{{ ep.from }}</td>
-                      <td class="text-caption">{{ ep.service }}</td>
-                      <td>
+                    <tr v-for="(ep, i) in poolHealth.endpoints" :key="i" style="border-bottom:1px solid rgba(0,0,0,0.06)">
+                      <td class="pa-2 mono text-body-2">{{ ep.endpoint }}</td>
+                      <td class="pa-2 mono text-caption">{{ ep.from }}</td>
+                      <td class="pa-2 text-caption">{{ ep.service }}</td>
+                      <td class="pa-2">
                         <v-chip size="x-small" :color="ep.healthy ? 'success' : 'error'" variant="tonal">
                           {{ ep.healthy ? 'Healthy' : 'Unhealthy' }}
                         </v-chip>
                       </td>
                     </tr>
                   </tbody>
-                </v-table>
+                </table>
               </template>
               <template v-else-if="poolHealth.summary.length">
                 <!-- tcpProxy: no per-endpoint data, show aggregate per service -->
-                <v-table density="compact">
-                  <thead><tr><th>Service</th><th>Backends</th><th>Status</th></tr></thead>
+                <table class="w-100" style="border-collapse:collapse">
+                  <thead>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.12)">
+                      <th class="text-left pa-2 text-caption font-weight-medium">LBService</th>
+                      <th class="text-left pa-2 text-caption font-weight-medium">Backends</th>
+                      <th class="text-left pa-2 text-caption font-weight-medium">Status</th>
+                    </tr>
+                  </thead>
                   <tbody>
-                    <tr v-for="(s, i) in poolHealth.summary" :key="i">
-                      <td>{{ s.service }}</td>
-                      <td>{{ s.ok }}/{{ s.total }}</td>
-                      <td><v-chip size="x-small" :color="s.status === 'OK' ? 'success' : 'error'" variant="tonal">{{ s.status }}</v-chip></td>
+                    <tr v-for="(s, i) in poolHealth.summary" :key="i" style="border-bottom:1px solid rgba(0,0,0,0.06)">
+                      <td class="pa-2 text-caption">{{ s.service }}</td>
+                      <td class="pa-2 text-caption">{{ s.ok }}/{{ s.total }}</td>
+                      <td class="pa-2"><v-chip size="x-small" :color="s.status === 'OK' ? 'success' : 'error'" variant="tonal">{{ s.status }}</v-chip></td>
                     </tr>
                   </tbody>
-                </v-table>
+                </table>
               </template>
               <div v-else-if="!poolHealth.loading" class="text-medium-emphasis text-caption">No health data available</div>
             </v-window-item>
@@ -2510,8 +2517,8 @@ const App = {
           const services = Array.isArray(data) ? data : (data?.services || []);
           const match = services.find(s => s.name === svcName) || services[0];
           if (!match) continue;
-          const eps = match.t2BackendHealthcheckStatus?.endpoints;
-          if (eps?.length) {
+          const eps = (match.t2BackendHealthcheckStatus?.endpoints || []).filter(e => e?.endpoint);
+          if (eps.length) {
             // Deduplicate by endpoint+from
             const seen = new Set();
             for (const ep of eps) {
@@ -2532,7 +2539,7 @@ const App = {
             });
           }
         }
-        poolHealth.endpoints = endpoints;
+        poolHealth.endpoints = endpoints.filter(e => e != null && e.endpoint != null);
         poolHealth.summary = summary;
       } catch (e) {
         poolHealth.error = `Error: ${e.message}`;
@@ -3247,7 +3254,7 @@ const App = {
       // Backends: prefer endpoint list from healthcheck; fall back to pool-level ok/total counts
       const hcSt = row.t2BackendHealthcheckStatus;
       const poolSt = row.backendpoolStatus;
-      const endpoints = hcSt?.endpoints || [];
+      const endpoints = (hcSt?.endpoints || []).filter(e => e != null);
       const unique = [...new Set(endpoints.map(e => e.endpoint))];
       let backendpools;
       if (unique.length) {
