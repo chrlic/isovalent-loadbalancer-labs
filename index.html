@@ -476,7 +476,7 @@
           </v-card>
           <!-- Raw JSON tab for debugging -->
           <v-expansion-panels class="mt-3">
-            <v-expansion-panel title="Raw JSON (debug)">
+            <v-expansion-panel title="Raw YAML (debug)">
               <v-expansion-panel-text>
                 <pre class="yaml-display">{{ toYaml(lbStatusRaw) }}</pre>
               </v-expansion-panel-text>
@@ -523,7 +523,7 @@
             </v-window-item>
           </v-window>
           <v-expansion-panels class="mt-3">
-            <v-expansion-panel title="Raw JSON (debug)">
+            <v-expansion-panel title="Raw YAML (debug)">
               <v-expansion-panel-text>
                 <pre class="yaml-display">{{ toYaml({ peers: bgpPeers, routes: bgpRoutes }) }}</pre>
               </v-expansion-panel-text>
@@ -3142,13 +3142,18 @@ const App = {
         // httpProxy with healthcheck — show individual endpoints
         const poolLabel = poolSt?.status ? ` (${poolSt.status})` : '';
         backendpools = unique.join(', ') + poolLabel;
-      } else if (poolSt?.ok != null && poolSt?.total != null) {
-        // tcpProxy or no healthcheck — show OK [ok/total]
-        backendpools = `${poolSt.status || 'OK'} [${poolSt.ok}/${poolSt.total}]`;
-      } else if (hcSt?.ok != null && hcSt?.total != null) {
-        backendpools = `${hcSt.status || 'OK'} [${hcSt.ok}/${hcSt.total}]`;
       } else {
-        backendpools = poolSt?.status || hcSt?.status || '-';
+        // tcpProxy: backendpoolStatus has groups[].ok/total, not top-level ok/total
+        const group = poolSt?.groups?.[0];
+        if (group?.ok != null && group?.total != null) {
+          backendpools = `${group.status || poolSt?.status || 'OK'} [${group.ok}/${group.total}]`;
+        } else if (poolSt?.ok != null && poolSt?.total != null) {
+          backendpools = `${poolSt.status || 'OK'} [${poolSt.ok}/${poolSt.total}]`;
+        } else if (hcSt?.ok != null && hcSt?.total != null) {
+          backendpools = `${hcSt.status || 'OK'} [${hcSt.ok}/${hcSt.total}]`;
+        } else {
+          backendpools = poolSt?.status || hcSt?.status || '-';
+        }
       }
       return {
         namespace: row.namespace || '-',
