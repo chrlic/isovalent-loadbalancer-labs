@@ -239,7 +239,11 @@ class Handler(BaseHTTPRequestHandler):
                 if not svc_name:
                     self.send_error_json("service name required", 400)
                     return
-                stdout, stderr, rc = run_cilium(["lb", "service", svc_name, "-o", "json"])
+                svc_ns = qs.get("namespace", [None])[0]
+                cmd = ["lb", "service", svc_name, "-o", "json"]
+                if svc_ns:
+                    cmd += ["-m", svc_ns]
+                stdout, stderr, rc = run_cilium(cmd)
                 if rc != 0:
                     self.send_error_json(stderr)
                     return

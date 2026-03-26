@@ -859,6 +859,7 @@
         <v-card-text class="pa-0">
           <v-tabs v-model="detailDialog.tab" density="compact">
             <v-tab value="overview">Overview</v-tab>
+            <v-tab v-if="detailDialog.resource === 'lbbackendpools'" value="health">Backend Health</v-tab>
             <v-tab value="spec">Spec</v-tab>
             <v-tab value="status">Status</v-tab>
             <v-tab value="yaml">YAML</v-tab>
@@ -922,6 +923,54 @@
                   </v-table>
                 </template>
               </template>
+            </v-window-item>
+
+            <!-- BACKEND HEALTH TAB (lbbackendpools only) -->
+            <v-window-item value="health">
+              <div class="d-flex align-center mb-3">
+                <span class="text-subtitle-2">Backend Health</span>
+                <v-spacer></v-spacer>
+                <v-btn variant="text" icon size="small" @click="loadPoolHealth(detailDialog.item)" :loading="poolHealth.loading"><v-icon>mdi-refresh</v-icon></v-btn>
+              </div>
+              <v-alert v-if="poolHealth.error" type="warning" variant="tonal" density="compact" class="mb-3">{{ poolHealth.error }}</v-alert>
+              <template v-if="poolHealth.endpoints.length">
+                <v-table density="compact">
+                  <thead>
+                    <tr>
+                      <th>Endpoint</th>
+                      <th>T2 Node</th>
+                      <th>Service</th>
+                      <th>Healthy</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(ep, i) in poolHealth.endpoints" :key="i">
+                      <td class="mono">{{ ep.endpoint }}</td>
+                      <td class="mono text-caption">{{ ep.from }}</td>
+                      <td class="text-caption">{{ ep.service }}</td>
+                      <td>
+                        <v-chip size="x-small" :color="ep.healthy ? 'success' : 'error'" variant="tonal">
+                          {{ ep.healthy ? 'Healthy' : 'Unhealthy' }}
+                        </v-chip>
+                      </td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </template>
+              <template v-else-if="poolHealth.summary.length">
+                <!-- tcpProxy: no per-endpoint data, show aggregate per service -->
+                <v-table density="compact">
+                  <thead><tr><th>Service</th><th>Backends</th><th>Status</th></tr></thead>
+                  <tbody>
+                    <tr v-for="(s, i) in poolHealth.summary" :key="i">
+                      <td>{{ s.service }}</td>
+                      <td>{{ s.ok }}/{{ s.total }}</td>
+                      <td><v-chip size="x-small" :color="s.status === 'OK' ? 'success' : 'error'" variant="tonal">{{ s.status }}</v-chip></td>
+                    </tr>
+                  </tbody>
+                </v-table>
+              </template>
+              <div v-else-if="!poolHealth.loading" class="text-medium-emphasis text-caption">No health data available</div>
             </v-window-item>
 
             <!-- SPEC TAB -->
@@ -2429,12 +2478,75 @@ const App = {
 
     // ---- Detail dialog ----
     const detailDialog = reactive({ show: false, item: null, tab: 'overview', resource: null });
+    const poolHealth = reactive({ loading: false, error: '', endpoints: [], summary: [] });
+
+    async function loadPoolHealth(pool) {
+      if (!pool) return;
+      poolHealth.loading = true;
+      poolHealth.error = '';
+      poolHealth.endpoints = [];
+      poolHealth.summary = [];
+      try {
+        const poolName = pool.metadata.name;
+        const ns = pool.metadata.namespace || selectedNamespace.value || 'default';
+        // Find all LBServices that reference this pool
+        const allSvcs = resources.lbservices || [];
+        const referencingServices = allSvcs.filter(svc => {
+          const apps = svc.spec?.applications || {};
+          return Object.values(apps).some(app =>
+            (app.routes || []).some(r => r.backendRef?.name === poolName)
+          );
+        });
+        if (!referencingServices.length) {
+          poolHealth.error = 'No LBServices reference this pool';
+          return;
+        }
+        const endpoints = [];
+        const summary = [];
+        for (const svc of referencingServices) {
+          const svcName = svc.metadata.name;
+          const svcNs = svc.metadata.namespace || ns;
+          const data = await apiFetch(`/api/cilium/lb/service/${encodeURIComponent(svcName)}?namespace=${encodeURIComponent(svcNs)}`);
+          const services = Array.isArray(data) ? data : (data?.services || []);
+          const match = services.find(s => s.name === svcName) || services[0];
+          if (!match) continue;
+          const eps = match.t2BackendHealthcheckStatus?.endpoints;
+          if (eps?.length) {
+            // Deduplicate by endpoint+from
+            const seen = new Set();
+            for (const ep of eps) {
+              const key = `${ep.from}|${ep.endpoint}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                endpoints.push({ ...ep, service: svcName });
+              }
+            }
+          } else {
+            // Aggregate only (tcpProxy)
+            const grp = match.backendpoolStatus?.groups?.[0];
+            summary.push({
+              service: svcName,
+              ok: grp?.ok ?? match.backendpoolStatus?.ok ?? '-',
+              total: grp?.total ?? match.backendpoolStatus?.total ?? '-',
+              status: grp?.status || match.backendpoolStatus?.status || '-',
+            });
+          }
+        }
+        poolHealth.endpoints = endpoints;
+        poolHealth.summary = summary;
+      } catch (e) {
+        poolHealth.error = `Error: ${e.message}`;
+      } finally {
+        poolHealth.loading = false;
+      }
+    }
 
     function openDetailDialog(item) {
       detailDialog.item = item;
-      detailDialog.tab = 'overview';
       detailDialog.resource = currentView.value;
+      detailDialog.tab = currentView.value === 'lbbackendpools' ? 'health' : 'overview';
       detailDialog.show = true;
+      if (currentView.value === 'lbbackendpools') loadPoolHealth(item);
     }
 
     function openEditFromDetail() {
@@ -3765,7 +3877,7 @@ const App = {
       lbvipColumns, lbserviceColumns, lbbackendpoolColumns, lbdeploymentColumns,
       lbippoolColumns, bgpColumns,
       refresh, onNamespaceChange, navigateTo,
-      detailDialog, openDetailDialog, openEditFromDetail,
+      detailDialog, openDetailDialog, openEditFromDetail, poolHealth, loadPoolHealth,
       editDialog, openCreateDialog, openEditDialog, saveResource, addBackend, addLBServiceRoute, syncYamlToForm,
       deleteDialog, confirmDelete, deleteResource,
       toYaml, formatDate, getConditionColor, getReadyStatus, getAge,
