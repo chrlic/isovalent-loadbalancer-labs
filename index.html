@@ -198,8 +198,8 @@
                           </v-chip>
                         </td>
                         <td>
-                          <v-chip size="x-small" :color="svc.t2BackendHealthcheckStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
-                            {{ svc.t2BackendHealthcheckStatus?.ok }}/{{ svc.t2BackendHealthcheckStatus?.total }}
+                          <v-chip size="x-small" :color="(svc.t2BackendHealthcheckStatus?.status || svc.backendpoolStatus?.status) === 'OK' ? 'green' : 'error'" variant="tonal">
+                            {{ (svc.t2BackendHealthcheckStatus?.ok ?? svc.backendpoolStatus?.ok) }}/{{ (svc.t2BackendHealthcheckStatus?.total ?? svc.backendpoolStatus?.total) }}
                           </v-chip>
                         </td>
                         <td>
@@ -3132,13 +3132,24 @@ const App = {
       const t2 = row.t2NodeStatus?.status || '-';
       const overall = [bgpPeer, bgpRoute, t1].some(s => s === 'DEG') ? 'DEGRADED'
                     : [bgpPeer, t1].every(s => s === 'OK') ? 'ONLINE' : '-';
-      // Backends: unique endpoints from t2BackendHealthcheckStatus
-      const endpoints = row.t2BackendHealthcheckStatus?.endpoints || [];
+      // Backends: prefer endpoint list from healthcheck; fall back to pool-level ok/total counts
+      const hcSt = row.t2BackendHealthcheckStatus;
+      const poolSt = row.backendpoolStatus;
+      const endpoints = hcSt?.endpoints || [];
       const unique = [...new Set(endpoints.map(e => e.endpoint))];
-      const backendpoolSt = row.backendpoolStatus?.status || '';
-      const backendpools = unique.length
-        ? unique.join(', ') + (backendpoolSt ? ` (${backendpoolSt})` : '')
-        : (backendpoolSt || '-');
+      let backendpools;
+      if (unique.length) {
+        // httpProxy with healthcheck — show individual endpoints
+        const poolLabel = poolSt?.status ? ` (${poolSt.status})` : '';
+        backendpools = unique.join(', ') + poolLabel;
+      } else if (poolSt?.ok != null && poolSt?.total != null) {
+        // tcpProxy or no healthcheck — show OK [ok/total]
+        backendpools = `${poolSt.status || 'OK'} [${poolSt.ok}/${poolSt.total}]`;
+      } else if (hcSt?.ok != null && hcSt?.total != null) {
+        backendpools = `${hcSt.status || 'OK'} [${hcSt.ok}/${hcSt.total}]`;
+      } else {
+        backendpools = poolSt?.status || hcSt?.status || '-';
+      }
       return {
         namespace: row.namespace || '-',
         name: row.name || '-',
