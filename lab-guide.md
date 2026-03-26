@@ -231,7 +231,7 @@ envoyConfig:
 loadBalancer:
   acceleration: disabled
   dsrDispatch: ipip
-  mode: dsr
+  mode: dsr          # DSR on the T1→T2 leg; T2 (Envoy/tcpProxy/httpProxy) does SNAT toward backends
 routingMode: native
 autoDirectNodeRoutes: true
 ipv4NativeRoutingCIDR: 10.0.0.0/8
@@ -260,6 +260,12 @@ operator:
 ```bash
 helm install ilb isovalent/cilium --version 1.18.7 -f values.yaml -n kube-system
 ```
+
+> **DSR vs SNAT:** `mode: dsr` applies to the T1 (BPF) → T2 (Envoy) forwarding leg, where IPIP
+> encapsulation carries the original client IP. However, T2 (Envoy) always performs **SNAT** when
+> forwarding to the actual backends — regardless of whether the LBService uses `tcpProxy` or
+> `httpProxy`. Backends therefore see the T2 node IP as the source, not the original client IP.
+> This is expected behaviour and does not require any special configuration on the backend VMs.
 
 > **Note:** Every `helm upgrade` requires these extra flags due to a nil pointer bug in the
 > enterprise template:
@@ -799,7 +805,7 @@ This creates:
 
 ### FRR neighbor configuration
 
-On the FRR router, configure the neighbor to match:
+On the FRR router (or Nexus switch), configure the neighbor to match:
 
 ```
 router bgp 65220
