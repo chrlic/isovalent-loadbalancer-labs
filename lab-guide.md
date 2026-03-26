@@ -797,6 +797,31 @@ This creates:
 - **IsovalentBGPAdvertisement** — advertises `LoadBalancerIP` addresses for all LBVIPs
 - **IsovalentBGPClusterConfig** — peers with `192.168.33.1` (ASN 65220) from T1 nodes (local ASN 64512)
 
+### FRR neighbor configuration
+
+On the FRR router, configure the neighbor to match:
+
+```
+router bgp 65220
+  router-id 192.168.33.1
+  log-neighbor-changes
+  neighbor 192.168.33.24
+    remote-as 64512
+    ebgp-multihop 3
+    address-family ipv4 unicast
+```
+
+> **Neighbor IP (`192.168.33.24`) is the Docker host's physical address**, not the T1 node IP.
+> BGP sessions originate from the T1 node inside Kind (`172.19.0.4`), but due to the iptables
+> MASQUERADE rule on the host, outbound BGP packets appear to the FRR router as coming from
+> the host's external interface (`192.168.33.24`).
+
+> **`ebgp-multihop 3` is required.** Standard eBGP expects peers to be directly connected
+> (1 hop). In this topology the BGP session crosses multiple hops: T1 node → Kind bridge →
+> Docker host → external network → FRR router. Without `ebgp-multihop`, FRR will drop the
+> session with a TTL expiry. The value of `3` covers the extra hops introduced by the
+> Kind/Docker bridging layer.
+
 Verify peering:
 ```bash
 cilium bgp peers
