@@ -8,13 +8,28 @@ import json
 import subprocess
 import sys
 import os
+import threading
+import time
+import ssl
+import urllib.request
+import urllib.error
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import traceback
+from datetime import datetime, timezone
 
 PORT = int(os.environ.get("PORT", 8080))
 KUBECTL = os.environ.get("KUBECTL", "kubectl")
-CILIUM = os.environ.get("CILIUM", "cilium")
+CILIUM  = os.environ.get("CILIUM",  "cilium")
+
+# ── Observability config ──────────────────────────────────────────────────────
+METRICS_INTERVAL   = int(os.environ.get("METRICS_INTERVAL", "30"))   # seconds
+
+SPLUNK_HEC_URL     = os.environ.get("SPLUNK_HEC_URL", "")            # e.g. https://splunk:8088/services/collector
+SPLUNK_HEC_TOKEN   = os.environ.get("SPLUNK_HEC_TOKEN", "")
+SPLUNK_HEC_INDEX   = os.environ.get("SPLUNK_HEC_INDEX", "")          # optional
+SPLUNK_HEC_INTERVAL= int(os.environ.get("SPLUNK_HEC_INTERVAL", "60"))# seconds
+SPLUNK_VERIFY_SSL  = os.environ.get("SPLUNK_VERIFY_SSL", "true").lower() not in ("false", "0", "no")
 
 
 def run_kubectl(args, stdin_data=None):
@@ -114,6 +129,229 @@ RESOURCE_MAP = {
 }
 
 
+# ── Shared metrics cache ──────────────────────────────────────────────────────
+_cache_lock   = threading.Lock()
+_metrics_cache = {
+    "lb_status":    None,   # parsed cilium lb status JSON
+    "bgp_peers":    None,   # parsed cilium bgp peers JSON
+    "inventory":    {},     # {resource: count}
+    "collected_at": None,   # ISO timestamp
+    "error":        None,
+}
+
+
+def collect_metrics():
+    """Fetch all runtime + inventory data and update the shared cache."""
+    result = {"collected_at": datetime.now(timezone.utc).isoformat(), "error": None}
+
+    # cilium lb status
+    try:
+        stdout, stderr, rc = run_cilium(["lb", "status", "-o", "json"])
+        result["lb_status"] = json.loads(stdout) if rc == 0 else None
+    except Exception as e:
+        result["lb_status"] = None
+
+    # cilium bgp peers
+    try:
+        stdout, stderr, rc = run_cilium(["bgp", "peers", "-o", "json"])
+        result["bgp_peers"] = json.loads(stdout) if rc == 0 else None
+    except Exception:
+        result["bgp_peers"] = None
+
+    # inventory counts
+    inventory = {}
+    for resource, crd in [
+        ("lbservices",      "lbservices.isovalent.com"),
+        ("lbvips",          "lbvips.isovalent.com"),
+        ("lbbackendpools",  "lbbackendpools.isovalent.com"),
+        ("lbdeployments",   "lbdeployments.isovalent.com"),
+        ("bgpclusterconfigs", "isovalentbgpclusterconfigs.isovalent.com"),
+        ("bgppeerconfigs",    "isovalentbgppeerconfigs.isovalent.com"),
+    ]:
+        data, _ = kubectl_get_json(crd)
+        inventory[resource] = len(data.get("items", [])) if data else 0
+    for resource, crd in [
+        ("lbippools", "ciliumloadbalancerippools.cilium.io"),
+    ]:
+        data, _ = kubectl_get_cluster_json(crd)
+        inventory[resource] = len(data.get("items", [])) if data else 0
+
+    result["inventory"] = inventory
+
+    with _cache_lock:
+        _metrics_cache.update(result)
+
+
+def _collector_loop():
+    """Background thread: refresh metrics cache on interval."""
+    while True:
+        try:
+            collect_metrics()
+        except Exception as e:
+            print(f"[metrics] collection error: {e}", file=sys.stderr)
+        time.sleep(METRICS_INTERVAL)
+
+
+# ── Prometheus /metrics renderer ──────────────────────────────────────────────
+
+def _prom_label(k, v):
+    v = str(v).replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    return f'{k}="{v}"'
+
+def _prom_labels(d):
+    return '{' + ','.join(_prom_label(k, v) for k, v in d.items()) + '}'
+
+def render_prometheus_metrics():
+    with _cache_lock:
+        cache = dict(_metrics_cache)
+
+    lines = []
+
+    def gauge(name, help_text, metric_type="gauge"):
+        lines.append(f"# HELP {name} {help_text}")
+        lines.append(f"# TYPE {name} {metric_type}")
+
+    def sample(name, labels, value):
+        lines.append(f"{name}{_prom_labels(labels)} {value}")
+
+    # ── Inventory gauges ──────────────────────────────────────────────────
+    gauge("ilb_inventory_count", "Number of ILB CRD objects by resource type")
+    for resource, count in (cache.get("inventory") or {}).items():
+        sample("ilb_inventory_count", {"resource": resource}, count)
+
+    # ── Per-service runtime metrics ───────────────────────────────────────
+    lb = cache.get("lb_status") or {}
+    services = lb.get("services", []) if isinstance(lb, dict) else []
+
+    gauge("ilb_service_online", "1 if service status is ONLINE, 0 otherwise")
+    gauge("ilb_service_backends_ok", "Number of healthy backends for the service")
+    gauge("ilb_service_backends_total", "Total backends configured for the service")
+    gauge("ilb_service_bgp_peers_ok", "Number of healthy BGP peers for the service")
+    gauge("ilb_service_bgp_peers_total", "Total BGP peers for the service")
+    gauge("ilb_service_t1_nodes_ok", "Number of healthy T1 nodes for the service")
+    gauge("ilb_service_t1_nodes_total", "Total T1 nodes for the service")
+    gauge("ilb_service_t2_nodes_ok", "Number of healthy T2 nodes for the service")
+    gauge("ilb_service_t2_nodes_total", "Total T2 nodes for the service")
+
+    for svc in services:
+        if not svc:
+            continue
+        lbls = {
+            "name":      svc.get("name", ""),
+            "namespace": svc.get("namespace", ""),
+            "vip":       svc.get("vip", ""),
+            "port":      str(svc.get("port", "")),
+            "type":      svc.get("type", ""),
+        }
+        sample("ilb_service_online",         lbls, 1 if svc.get("status") == "ONLINE" else 0)
+
+        bgp   = svc.get("bgpPeerStatus") or {}
+        sample("ilb_service_bgp_peers_ok",    lbls, bgp.get("ok", 0))
+        sample("ilb_service_bgp_peers_total",  lbls, bgp.get("total", 0))
+
+        t1    = svc.get("t1NodeStatus") or {}
+        sample("ilb_service_t1_nodes_ok",     lbls, t1.get("ok", 0))
+        sample("ilb_service_t1_nodes_total",   lbls, t1.get("total", 0))
+
+        t2    = svc.get("t2NodeStatus") or {}
+        sample("ilb_service_t2_nodes_ok",     lbls, t2.get("ok", 0))
+        sample("ilb_service_t2_nodes_total",   lbls, t2.get("total", 0))
+
+        # backend counts: httpProxy uses t2BackendHealthcheckStatus,
+        # tcpProxy uses backendpoolStatus.groups[0]
+        hc    = svc.get("t2BackendHealthcheckStatus") or {}
+        pool  = svc.get("backendpoolStatus") or {}
+        grp   = (pool.get("groups") or [{}])[0]
+        be_ok    = hc.get("ok")    if hc.get("ok")    is not None else grp.get("ok", 0)
+        be_total = hc.get("total") if hc.get("total") is not None else grp.get("total", 0)
+        sample("ilb_service_backends_ok",     lbls, be_ok)
+        sample("ilb_service_backends_total",   lbls, be_total)
+
+    # ── BGP peer metrics ──────────────────────────────────────────────────
+    bgp_peers = cache.get("bgp_peers") or []
+    gauge("ilb_bgp_peer_established", "1 if BGP session is established, 0 otherwise")
+    gauge("ilb_bgp_peer_prefixes_received", "Number of prefixes received from BGP peer")
+    for peer in bgp_peers:
+        if not peer:
+            continue
+        lbls = {
+            "local_asn":    str(peer.get("localAsn", "")),
+            "peer_address": peer.get("peerAddress", ""),
+            "peer_asn":     str(peer.get("peerAsn", "")),
+            "node":         peer.get("node", ""),
+        }
+        sample("ilb_bgp_peer_established",
+               lbls, 1 if peer.get("sessionState") == "established" else 0)
+        sample("ilb_bgp_peer_prefixes_received",
+               lbls, peer.get("numReceivedRoutes", 0) or 0)
+
+    # ── Scrape metadata ───────────────────────────────────────────────────
+    gauge("ilb_scrape_timestamp_seconds", "Unix timestamp of last metrics collection")
+    ts = cache.get("collected_at")
+    if ts:
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(ts)
+            lines.append(f"ilb_scrape_timestamp_seconds{{}} {dt.timestamp():.3f}")
+        except Exception:
+            pass
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+# ── Full status export (used by /api/status/export and Splunk HEC) ─────────────
+
+def build_status_export():
+    """Return a dict with full inventory + runtime state."""
+    with _cache_lock:
+        cache = dict(_metrics_cache)
+
+    export = {
+        "collected_at": cache.get("collected_at"),
+        "lb_status":    cache.get("lb_status"),
+        "bgp_peers":    cache.get("bgp_peers"),
+        "inventory":    cache.get("inventory") or {},
+    }
+    return export
+
+
+# ── Splunk HEC forwarder ──────────────────────────────────────────────────────
+
+def _splunk_post(payload: dict):
+    """POST a single event to Splunk HEC."""
+    event = {"event": payload, "time": time.time(), "sourcetype": "isovalent:ilb"}
+    if SPLUNK_HEC_INDEX:
+        event["index"] = SPLUNK_HEC_INDEX
+    body = json.dumps(event).encode()
+    req  = urllib.request.Request(
+        SPLUNK_HEC_URL,
+        data=body,
+        headers={
+            "Authorization": f"Splunk {SPLUNK_HEC_TOKEN}",
+            "Content-Type":  "application/json",
+        },
+        method="POST",
+    )
+    ctx = ssl.create_default_context() if SPLUNK_VERIFY_SSL else ssl._create_unverified_context()
+    with urllib.request.urlopen(req, context=ctx, timeout=10) as resp:
+        return resp.status
+
+
+def _splunk_loop():
+    """Background thread: push status export to Splunk HEC on interval."""
+    print(f"[splunk] HEC forwarder starting → {SPLUNK_HEC_URL} (interval {SPLUNK_HEC_INTERVAL}s)",
+          file=sys.stderr)
+    while True:
+        try:
+            export = build_status_export()
+            status = _splunk_post(export)
+            print(f"[splunk] pushed export, HEC status={status}", file=sys.stderr)
+        except Exception as e:
+            print(f"[splunk] push error: {e}", file=sys.stderr)
+        time.sleep(SPLUNK_HEC_INTERVAL)
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         print(f"[{self.address_string()}] {format % args}", file=sys.stderr)
@@ -159,6 +397,21 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/favicon.ico":
                 self.serve_file("favicon.ico", "image/x-icon")
+                return
+
+            # Prometheus metrics
+            if path == "/metrics":
+                body = render_prometheus_metrics().encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.send_header("Content-Length", len(body))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+
+            # Full status export
+            if path == "/api/status/export":
+                self.send_json(build_status_export())
                 return
 
             # Namespaces list
@@ -533,8 +786,25 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Starting Isovalent LB GUI on http://0.0.0.0:{PORT}", file=sys.stderr)
-    print(f"Using kubectl: {KUBECTL}", file=sys.stderr)
-    print(f"Using cilium:  {CILIUM}", file=sys.stderr)
+    print(f"Using kubectl:          {KUBECTL}", file=sys.stderr)
+    print(f"Using cilium:           {CILIUM}", file=sys.stderr)
+    print(f"Metrics interval:       {METRICS_INTERVAL}s  →  /metrics", file=sys.stderr)
+
+    # Initial metrics collection (best-effort, don't block startup)
+    threading.Thread(target=collect_metrics, daemon=True).start()
+
+    # Background metrics refresh loop
+    t = threading.Thread(target=_collector_loop, daemon=True)
+    t.start()
+
+    # Splunk HEC forwarder (only if configured)
+    if SPLUNK_HEC_URL and SPLUNK_HEC_TOKEN:
+        print(f"Splunk HEC forwarder:   {SPLUNK_HEC_URL} (interval {SPLUNK_HEC_INTERVAL}s)", file=sys.stderr)
+        ts = threading.Thread(target=_splunk_loop, daemon=True)
+        ts.start()
+    else:
+        print("Splunk HEC forwarder:   disabled (set SPLUNK_HEC_URL + SPLUNK_HEC_TOKEN to enable)", file=sys.stderr)
+
     server = HTTPServer(("0.0.0.0", PORT), Handler)
     try:
         server.serve_forever()

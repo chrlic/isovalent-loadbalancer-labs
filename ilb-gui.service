@@ -1,0 +1,44 @@
+[Unit]
+Description=Isovalent LB Management GUI
+After=network.target
+
+[Service]
+Type=simple
+# Run as a dedicated user — create with: useradd -r -s /sbin/nologin ilbgui
+User=ilbgui
+Group=ilbgui
+
+WorkingDirectory=/opt/ilb-gui
+
+ExecStart=/usr/bin/python3 /opt/ilb-gui/server.py
+
+Restart=on-failure
+RestartSec=5
+
+# ── Core settings ──────────────────────────────────────────────────────────
+Environment=PORT=8080
+Environment=KUBECTL=/usr/local/bin/kubectl
+Environment=CILIUM=/usr/local/bin/cilium
+
+# Path to kubeconfig if not running as a cluster pod (adjust as needed)
+Environment=KUBECONFIG=/home/ilbgui/.kube/config
+
+# ── Metrics ────────────────────────────────────────────────────────────────
+# Interval (seconds) for background metrics collection
+Environment=METRICS_INTERVAL=30
+
+# ── Splunk HEC forwarder (optional) ────────────────────────────────────────
+# Uncomment and fill in to enable direct Splunk HEC push:
+#Environment=SPLUNK_HEC_URL=https://splunk.example.com:8088/services/collector
+#Environment=SPLUNK_HEC_TOKEN=your-hec-token-here
+#Environment=SPLUNK_HEC_INDEX=isovalent_ilb
+#Environment=SPLUNK_HEC_INTERVAL=60
+#Environment=SPLUNK_VERIFY_SSL=true
+
+# ── Hardening ──────────────────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
