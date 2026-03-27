@@ -179,32 +179,32 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="svc in lbStatusRaw.services" :key="svc.namespace+'/'+svc.name" @click="navigateTo('lbstatus')" style="cursor:pointer">
-                        <td><span class="text-caption text-medium-emphasis">{{ svc.namespace }}/</span><strong>{{ svc.name }}</strong></td>
-                        <td class="mono text-caption">{{ svc.vip }}:{{ svc.port }}</td>
-                        <td class="text-caption">{{ svc.type }}</td>
+                      <tr v-for="(svc, si) in lbStatusRaw.services" :key="si" @click="navigateTo('lbstatus')" style="cursor:pointer">
+                        <td><span class="text-caption text-medium-emphasis">{{ svc?.namespace }}/</span><strong>{{ svc?.name }}</strong></td>
+                        <td class="mono text-caption">{{ svc?.vip }}:{{ svc?.port }}</td>
+                        <td class="text-caption">{{ svc?.type }}</td>
                         <td>
-                          <v-chip size="x-small" :color="svc.bgpPeerStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
+                          <v-chip v-if="svc" size="x-small" :color="svc.bgpPeerStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
                             {{ svc.bgpPeerStatus?.ok }}/{{ svc.bgpPeerStatus?.total }}
                           </v-chip>
                         </td>
                         <td>
-                          <v-chip size="x-small" :color="svc.t1NodeStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
+                          <v-chip v-if="svc" size="x-small" :color="svc.t1NodeStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
                             {{ svc.t1NodeStatus?.ok }}/{{ svc.t1NodeStatus?.total }}
                           </v-chip>
                         </td>
                         <td>
-                          <v-chip size="x-small" :color="svc.t2NodeStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
+                          <v-chip v-if="svc" size="x-small" :color="svc.t2NodeStatus?.status === 'OK' ? 'green' : 'error'" variant="tonal">
                             {{ svc.t2NodeStatus?.ok }}/{{ svc.t2NodeStatus?.total }}
                           </v-chip>
                         </td>
                         <td>
-                          <v-chip size="x-small" :color="(svc.t2BackendHealthcheckStatus?.status || svc.backendpoolStatus?.status) === 'OK' ? 'green' : 'error'" variant="tonal">
+                          <v-chip v-if="svc" size="x-small" :color="(svc.t2BackendHealthcheckStatus?.status || svc.backendpoolStatus?.status) === 'OK' ? 'green' : 'error'" variant="tonal">
                             {{ (svc.t2BackendHealthcheckStatus?.ok ?? svc.backendpoolStatus?.groups?.[0]?.ok ?? svc.backendpoolStatus?.ok) }}/{{ (svc.t2BackendHealthcheckStatus?.total ?? svc.backendpoolStatus?.groups?.[0]?.total ?? svc.backendpoolStatus?.total) }}
                           </v-chip>
                         </td>
                         <td>
-                          <v-chip size="x-small" :color="svc.status === 'ONLINE' ? 'green' : 'error'" variant="flat">
+                          <v-chip v-if="svc" size="x-small" :color="svc.status === 'ONLINE' ? 'green' : 'error'" variant="flat">
                             {{ svc.status }}
                           </v-chip>
                         </td>
@@ -452,17 +452,17 @@
               hover
             >
               <template v-slot:item.status="{ item }">
-                <v-chip size="x-small" :color="item.status === 'ONLINE' ? 'success' : item.status === 'DEGRADED' ? 'warning' : item.status === 'OFFLINE' ? 'error' : 'grey'" variant="tonal">
+                <v-chip v-if="item" size="x-small" :color="item.status === 'ONLINE' ? 'success' : item.status === 'DEGRADED' ? 'warning' : item.status === 'OFFLINE' ? 'error' : 'grey'" variant="tonal">
                   {{ item.status || 'Unknown' }}
                 </v-chip>
               </template>
               <template v-slot:item.bgp="{ item }">
-                <v-chip size="x-small" :color="item.bgp?.startsWith('OK') ? 'success' : item.bgp?.startsWith('DEG') ? 'warning' : 'grey'" variant="tonal">
+                <v-chip v-if="item" size="x-small" :color="item.bgp?.startsWith('OK') ? 'success' : item.bgp?.startsWith('DEG') ? 'warning' : 'grey'" variant="tonal">
                   {{ item.bgp || '-' }}
                 </v-chip>
               </template>
               <template v-slot:item.actions="{ item }">
-                <v-btn icon size="small" variant="text" @click="openLBServiceDetail(item)" title="Detail">
+                <v-btn v-if="item" icon size="small" variant="text" @click="openLBServiceDetail(item)" title="Detail">
                   <v-icon size="18">mdi-eye</v-icon>
                 </v-btn>
               </template>
@@ -503,7 +503,7 @@
               <v-card rounded="lg" elevation="2">
                 <v-data-table :items="bgpPeers" :headers="bgpPeerHeaders" :loading="bgpStatusLoading" density="comfortable" hover>
                   <template v-slot:item.sessionState="{ item }">
-                    <v-chip size="x-small" :color="item.sessionState === 'established' ? 'success' : 'warning'" variant="tonal">
+                    <v-chip v-if="item" size="x-small" :color="item.sessionState === 'established' ? 'success' : 'warning'" variant="tonal">
                       {{ item.sessionState || '-' }}
                     </v-chip>
                   </template>
@@ -676,13 +676,13 @@
               hover
             >
               <template v-slot:item.type="{ item }">
-                <v-chip size="x-small" variant="outlined">{{ item.type }}</v-chip>
+                <v-chip size="x-small" variant="outlined">{{ item?.type }}</v-chip>
               </template>
               <template v-slot:item.age="{ item }">
-                <span class="text-caption">{{ getAge(item.metadata.creationTimestamp) }}</span>
+                <span v-if="item" class="text-caption">{{ getAge(item.metadata.creationTimestamp) }}</span>
               </template>
               <template v-slot:item.actions="{ item }">
-                <v-btn icon size="small" variant="text" color="error" @click="confirmDeleteSecret(item)" title="Delete">
+                <v-btn v-if="item" icon size="small" variant="text" color="error" @click="confirmDeleteSecret(item)" title="Delete">
                   <v-icon size="18">mdi-delete</v-icon>
                 </v-btn>
               </template>
@@ -871,57 +871,61 @@
             <!-- OVERVIEW TAB -->
             <v-window-item value="overview">
               <template v-if="detailDialog.item">
-                <v-table density="compact">
+                <table style="width:100%;border-collapse:collapse">
                   <tbody>
-                    <tr><td class="font-weight-medium" style="width:180px">Name</td><td>{{ detailDialog.item.metadata.name }}</td></tr>
-                    <tr><td class="font-weight-medium">Namespace</td><td>{{ detailDialog.item.metadata.namespace }}</td></tr>
-                    <tr><td class="font-weight-medium">UID</td><td class="mono">{{ detailDialog.item.metadata.uid }}</td></tr>
-                    <tr><td class="font-weight-medium">Resource Version</td><td class="mono">{{ detailDialog.item.metadata.resourceVersion }}</td></tr>
-                    <tr><td class="font-weight-medium">Created</td><td>{{ formatDate(detailDialog.item.metadata.creationTimestamp) }}</td></tr>
-                    <tr v-if="detailDialog.item.metadata.labels && Object.keys(detailDialog.item.metadata.labels).length">
-                      <td class="font-weight-medium" style="vertical-align:top">Labels</td>
-                      <td>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.06)"><td class="font-weight-medium pa-2" style="width:180px;vertical-align:top">Name</td><td class="pa-2">{{ detailDialog.item.metadata.name }}</td></tr>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.06)"><td class="font-weight-medium pa-2" style="vertical-align:top">Namespace</td><td class="pa-2">{{ detailDialog.item.metadata.namespace }}</td></tr>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.06)"><td class="font-weight-medium pa-2" style="vertical-align:top">UID</td><td class="pa-2 mono text-caption">{{ detailDialog.item.metadata.uid }}</td></tr>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.06)"><td class="font-weight-medium pa-2" style="vertical-align:top">Resource Version</td><td class="pa-2 mono text-caption">{{ detailDialog.item.metadata.resourceVersion }}</td></tr>
+                    <tr style="border-bottom:1px solid rgba(0,0,0,0.06)"><td class="font-weight-medium pa-2" style="vertical-align:top">Created</td><td class="pa-2">{{ formatDate(detailDialog.item.metadata.creationTimestamp) }}</td></tr>
+                    <tr v-if="detailDialog.item.metadata.labels && Object.keys(detailDialog.item.metadata.labels).length" style="border-bottom:1px solid rgba(0,0,0,0.06)">
+                      <td class="font-weight-medium pa-2" style="vertical-align:top">Labels</td>
+                      <td class="pa-2">
                         <v-chip v-for="(v, k) in detailDialog.item.metadata.labels" :key="k" class="mr-1 mb-1" size="x-small" variant="outlined">
                           {{ k }}={{ v }}
                         </v-chip>
                       </td>
                     </tr>
-                    <tr v-if="detailDialog.item.metadata.annotations && Object.keys(detailDialog.item.metadata.annotations).length">
-                      <td class="font-weight-medium" style="vertical-align:top">Annotations</td>
-                      <td>
+                    <tr v-if="detailDialog.item.metadata.annotations && Object.keys(detailDialog.item.metadata.annotations).length" style="border-bottom:1px solid rgba(0,0,0,0.06)">
+                      <td class="font-weight-medium pa-2" style="vertical-align:top">Annotations</td>
+                      <td class="pa-2">
                         <div v-for="(v, k) in detailDialog.item.metadata.annotations" :key="k" class="mono text-caption">
                           <strong>{{ k }}:</strong> {{ v }}
                         </div>
                       </td>
                     </tr>
                   </tbody>
-                </v-table>
+                </table>
 
                 <!-- Conditions -->
                 <template v-if="detailDialog.item.status?.conditions?.length">
                   <div class="text-subtitle-2 mt-4 mb-2">Conditions</div>
-                  <v-table density="compact">
+                  <table style="width:100%;border-collapse:collapse">
                     <thead>
-                      <tr>
-                        <th>Type</th><th>Status</th><th>Reason</th><th>Message</th><th>Last Transition</th>
+                      <tr style="border-bottom:1px solid rgba(0,0,0,0.12)">
+                        <th class="pa-2 text-left text-caption font-weight-medium">Type</th>
+                        <th class="pa-2 text-left text-caption font-weight-medium">Status</th>
+                        <th class="pa-2 text-left text-caption font-weight-medium">Reason</th>
+                        <th class="pa-2 text-left text-caption font-weight-medium">Message</th>
+                        <th class="pa-2 text-left text-caption font-weight-medium">Last Transition</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="cond in detailDialog.item.status.conditions" :key="cond.type">
-                        <td class="font-weight-medium">{{ cond.type }}</td>
-                        <td>
-                          <v-chip size="x-small"
+                      <tr v-for="(cond, ci) in detailDialog.item.status.conditions" :key="ci" style="border-bottom:1px solid rgba(0,0,0,0.06)">
+                        <td class="pa-2 font-weight-medium text-caption">{{ cond?.type }}</td>
+                        <td class="pa-2">
+                          <v-chip v-if="cond" size="x-small"
                             :color="cond.status === 'True' ? 'success' : cond.status === 'False' ? 'error' : 'warning'"
                             variant="tonal">
                             {{ cond.status }}
                           </v-chip>
                         </td>
-                        <td class="mono text-caption">{{ cond.reason }}</td>
-                        <td style="max-width:300px;word-break:break-word">{{ cond.message }}</td>
-                        <td class="text-caption">{{ formatDate(cond.lastTransitionTime) }}</td>
+                        <td class="pa-2 mono text-caption">{{ cond?.reason }}</td>
+                        <td class="pa-2" style="max-width:300px;word-break:break-word">{{ cond?.message }}</td>
+                        <td class="pa-2 text-caption">{{ formatDate(cond?.lastTransitionTime) }}</td>
                       </tr>
                     </tbody>
-                  </v-table>
+                  </table>
                 </template>
               </template>
             </v-window-item>
@@ -2175,7 +2179,7 @@ const ResourceListView = {
         :items-per-page="15"
       >
         <template v-slot:item.status="{ item }">
-          <v-chip
+          <v-chip v-if="item"
             size="x-small"
             :color="getConditionColor(item)"
             variant="tonal"
@@ -2183,15 +2187,17 @@ const ResourceListView = {
           >{{ getReadyStatus(item) }}</v-chip>
         </template>
         <template v-slot:item.age="{ item }">
-          <span class="text-caption">{{ getAge(item.metadata.creationTimestamp) }}</span>
+          <span v-if="item" class="text-caption">{{ getAge(item.metadata.creationTimestamp) }}</span>
         </template>
         <template v-slot:item.namespace="{ item }">
-          <v-chip size="x-small" variant="outlined">{{ item.metadata.namespace }}</v-chip>
+          <v-chip v-if="item" size="x-small" variant="outlined">{{ item.metadata.namespace }}</v-chip>
         </template>
         <template v-slot:item.actions="{ item }">
+          <template v-if="item">
           <v-btn icon size="small" variant="text" @click.stop="$emit('view', item)" title="View"><v-icon size="18">mdi-eye</v-icon></v-btn>
           <v-btn icon size="small" variant="text" @click.stop="$emit('edit', item)" title="Edit"><v-icon size="18">mdi-pencil</v-icon></v-btn>
           <v-btn icon size="small" variant="text" color="error" @click.stop="$emit('delete', item)" title="Delete"><v-icon size="18">mdi-delete</v-icon></v-btn>
+          </template>
         </template>
         <template v-slot:no-data>
           <div class="text-center pa-8 text-medium-emphasis">
