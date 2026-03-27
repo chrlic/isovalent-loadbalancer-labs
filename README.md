@@ -12,7 +12,8 @@ A hands-on lab for deploying [Isovalent](https://isovalent.com/) ILB (Layer 7 Lo
 
 | Path | Description |
 |------|-------------|
-| `lab-guide.md` | Step-by-step deployment guide — from a fresh RHEL/CentOS host to a fully working ILB with BGP |
+| `doc/lab-guide.md` | Step-by-step deployment guide — from a fresh RHEL/CentOS host to a fully working ILB with BGP |
+| `doc/otel-metrics.md` | How to set up an OpenTelemetry Collector to forward `/metrics` to Splunk or other backends |
 | `index.html` | Single-file management GUI — runs via `server.py` |
 | `server.py` | Python HTTP server: GUI backend, Prometheus `/metrics`, Splunk HEC forwarder |
 | `Dockerfile` | Container image for the GUI |
@@ -63,7 +64,7 @@ A hands-on lab for deploying [Isovalent](https://isovalent.com/) ILB (Layer 7 Lo
 
 ### 1. Follow the lab guide
 
-Read [`lab-guide.md`](lab-guide.md) for the full walkthrough:
+Read [`doc/lab-guide.md`](doc/lab-guide.md) for the full walkthrough:
 - Docker + Kind cluster setup
 - Helm install of Isovalent ILB
 - BGP peering with FRR
@@ -133,7 +134,7 @@ LBDeployment      — assigns T1/T2 nodes to a set of LBServices by label select
 - **Host route** — VIP pool `172.20.0.0/24` is not on the Kind bridge subnet; add `ip route add 172.20.0.0/24 via <T1-IP>` on the host.
 - **iptables MASQUERADE** — required so T1's BPF sees traffic as coming from a local source and delegates to T2.
 
-See [`lab-guide.md`](lab-guide.md) for the full rationale and exact commands.
+See [`doc/lab-guide.md`](doc/lab-guide.md) for the full rationale and exact commands.
 
 ---
 
@@ -144,6 +145,8 @@ See [`lab-guide.md`](lab-guide.md) for the full rationale and exact commands.
 ### Prometheus `/metrics`
 
 A background thread refreshes metrics every `METRICS_INTERVAL` seconds (default 30). The endpoint exposes standard Prometheus text format and can be scraped by Prometheus, an OpenTelemetry Collector, or any compatible tool.
+
+See [`doc/otel-metrics.md`](doc/otel-metrics.md) for a complete guide on setting up an OTel Collector to forward metrics to Splunk or other backends, including a minimal custom collector build.
 
 ```
 GET http://<host>:8080/metrics
