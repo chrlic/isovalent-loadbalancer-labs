@@ -151,12 +151,23 @@ def collect_metrics():
     except Exception as e:
         result["lb_status"] = None
 
-    # cilium bgp peers
+    # cilium bgp peers — returns dict {node: [peer, ...]}; flatten to list with node added
     try:
         stdout, stderr, rc = run_cilium(["bgp", "peers", "-o", "json"])
-        result["bgp_peers"] = json.loads(stdout) if rc == 0 else None
+        if rc == 0:
+            raw = json.loads(stdout)
+            flat = []
+            if isinstance(raw, dict):
+                for node, peers in raw.items():
+                    for p in (peers or []):
+                        flat.append({**p, "node": node})
+            elif isinstance(raw, list):
+                flat = raw
+            result["bgp_peers"] = flat
+        else:
+            result["bgp_peers"] = []
     except Exception:
-        result["bgp_peers"] = None
+        result["bgp_peers"] = []
 
     # inventory counts
     inventory = {}
@@ -275,15 +286,16 @@ def render_prometheus_metrics():
         if not peer:
             continue
         lbls = {
-            "local_asn":    str(peer.get("localAsn", "")),
-            "peer_address": peer.get("peerAddress", ""),
-            "peer_asn":     str(peer.get("peerAsn", "")),
+            "local_asn":    str(peer.get("local-asn", peer.get("localAsn", ""))),
+            "peer_address": peer.get("peer-address", peer.get("peerAddress", "")),
+            "peer_asn":     str(peer.get("peer-asn", peer.get("peerAsn", ""))),
             "node":         peer.get("node", ""),
         }
+        session = peer.get("session-state", peer.get("sessionState", ""))
         sample("ilb_bgp_peer_established",
-               lbls, 1 if peer.get("sessionState") == "established" else 0)
-        sample("ilb_bgp_peer_prefixes_received",
-               lbls, peer.get("numReceivedRoutes", 0) or 0)
+               lbls, 1 if session == "established" else 0)
+        received = peer.get("num-received-routes", peer.get("numReceivedRoutes", 0)) or 0
+        sample("ilb_bgp_peer_prefixes_received", lbls, received)
 
     # ── Scrape metadata ───────────────────────────────────────────────────
     gauge("ilb_scrape_timestamp_seconds", "Unix timestamp of last metrics collection")
