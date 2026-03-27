@@ -14,9 +14,10 @@ A hands-on lab for deploying [Isovalent](https://isovalent.com/) ILB (Layer 7 Lo
 |------|-------------|
 | `lab-guide.md` | Step-by-step deployment guide — from a fresh RHEL/CentOS host to a fully working ILB with BGP |
 | `index.html` | Single-file management GUI — runs via `server.py` |
-| `server.py` | Lightweight Python HTTP server + `kubectl`/`cilium` proxy backend |
+| `server.py` | Python HTTP server: GUI backend, Prometheus `/metrics`, Splunk HEC forwarder |
 | `Dockerfile` | Container image for the GUI |
 | `gui-deployment/` | Kubernetes manifests to deploy the GUI onto the cluster itself |
+| `ilb-gui.service` | systemd unit file for running the GUI as a Linux service |
 | `start.sh` | Helper script to launch the GUI locally |
 
 ---
@@ -99,13 +100,10 @@ The GUI is a single-page app served from `index.html`. It talks to the Kubernete
 - CRUD for all Isovalent ILB CRDs: LBService, LBVIP, LBBackendPool, LBDeployment, LBIPPool
 - BGP setup wizard (IsovalentBGPClusterConfig, IsovalentBGPPeerConfig, IsovalentBGPAdvertisement)
 - LB Status view (real-time `cilium lb status` output)
+- Backend Health tab on LBBackendPool detail — per-endpoint health per T2 node
 - Cilium Nodes view
 - CRD Reference page — relationship diagram and field documentation
 - Namespace selector (all views update on change)
-
-**Screenshots:**
-
-> Dashboard → LB Status → BGP Setup → CRD Reference
 
 ---
 
@@ -136,6 +134,71 @@ LBDeployment      — assigns T1/T2 nodes to a set of LBServices by label select
 - **iptables MASQUERADE** — required so T1's BPF sees traffic as coming from a local source and delegates to T2.
 
 See [`lab-guide.md`](lab-guide.md) for the full rationale and exact commands.
+
+---
+
+## Observability
+
+`server.py` exposes observability endpoints and an optional Splunk forwarder with no extra dependencies (pure Python stdlib).
+
+### Prometheus `/metrics`
+
+A background thread refreshes metrics every `METRICS_INTERVAL` seconds (default 30). The endpoint exposes standard Prometheus text format and can be scraped by Prometheus, an OpenTelemetry Collector, or any compatible tool.
+
+```
+GET http://<host>:8080/metrics
+```
+
+**Metrics exposed:**
+
+| Metric | Labels | Description |
+|--------|--------|-------------|
+| `ilb_service_online` | name, namespace, vip, port, type | 1 = ONLINE, 0 = degraded |
+| `ilb_service_backends_ok` | same | Healthy backend count (httpProxy + tcpProxy) |
+| `ilb_service_backends_total` | same | Total backend count |
+| `ilb_service_bgp_peers_ok/total` | same | BGP peer health per service |
+| `ilb_service_t1_nodes_ok/total` | same | T1 node health per service |
+| `ilb_service_t2_nodes_ok/total` | same | T2 node health per service |
+| `ilb_bgp_peer_established` | local_asn, peer_address, peer_asn, node | 1 = established |
+| `ilb_bgp_peer_prefixes_received` | same | Received route count |
+| `ilb_inventory_count` | resource | Object count per CRD type |
+| `ilb_scrape_timestamp_seconds` | — | Unix timestamp of last collection |
+
+### Full status export
+
+```
+GET http://<host>:8080/api/status/export
+```
+
+Returns a single JSON document with `lb_status`, `bgp_peers`, `inventory`, and `collected_at`. Useful for ad-hoc scraping or feeding into any monitoring pipeline.
+
+### Splunk HEC forwarder
+
+Set the following environment variables to enable a background thread that pushes the full status export to a Splunk HTTP Event Collector on a configurable interval:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SPLUNK_HEC_URL` | _(disabled)_ | HEC endpoint, e.g. `https://splunk:8088/services/collector` |
+| `SPLUNK_HEC_TOKEN` | _(disabled)_ | HEC token |
+| `SPLUNK_HEC_INDEX` | _(none)_ | Target Splunk index (optional) |
+| `SPLUNK_HEC_INTERVAL` | `60` | Push interval in seconds |
+| `SPLUNK_VERIFY_SSL` | `true` | Set to `false` to skip TLS verification |
+
+The forwarder only starts when both `SPLUNK_HEC_URL` and `SPLUNK_HEC_TOKEN` are set.
+
+### Running as a Linux service
+
+Copy and adapt the included systemd unit:
+
+```bash
+sudo cp ilb-gui.service /etc/systemd/system/
+# Edit WorkingDirectory, KUBECONFIG, and optional Splunk vars
+sudo useradd -r -s /sbin/nologin ilbgui
+sudo cp server.py index.html favicon.ico /opt/ilb-gui/
+sudo cp /usr/local/bin/kubectl /usr/local/bin/cilium /opt/ilb-gui/  # or adjust KUBECTL/CILIUM env vars
+sudo systemctl daemon-reload
+sudo systemctl enable --now ilb-gui
+```
 
 ---
 
