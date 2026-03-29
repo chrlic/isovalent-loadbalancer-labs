@@ -2350,20 +2350,28 @@ const App = {
       return { view, ns };
     }
 
+    let _skipNextHashChange = false;
+
     function pushHash(view, ns) {
       const nsParam = ns && ns !== '(all)' ? `?ns=${encodeURIComponent(ns)}` : '';
       const hash = `#/${view}${nsParam}`;
-      if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+      if (window.location.hash !== hash) {
+        _skipNextHashChange = true;
+        window.location.hash = hash;
+      }
     }
 
-    function applyRoute({ view, ns }) {
-      // Update state without triggering the watchers that would pushHash again
+    async function applyRoute({ view, ns }) {
       _routeApplying = true;
-      currentView.value = view;
-      selectedNamespace.value = ns;
-      _routeApplying = false;
-      refresh();
-      loadCurrentView();
+      try {
+        currentView.value = view;
+        selectedNamespace.value = ns;
+        await nextTick(); // let Vue flush watchers while flag is still true
+        await refresh();
+        loadCurrentView();
+      } finally {
+        _routeApplying = false;
+      }
     }
 
     let _routeApplying = false;
@@ -2564,7 +2572,6 @@ const App = {
     }
 
     function onNamespaceChange() {
-      if (!_routeApplying) pushHash(currentView.value, selectedNamespace.value);
       refresh();
       loadCurrentView();
     }
@@ -2582,7 +2589,6 @@ const App = {
 
     function navigateTo(view) {
       currentView.value = view;
-      if (!_routeApplying) pushHash(view, selectedNamespace.value);
     }
 
     // ---- Detail dialog ----
@@ -3902,8 +3908,9 @@ const App = {
     }
 
     // ── View-change watch (lazy load monitoring data) ─────────────────────
-    watch(selectedNamespace, () => {
+    watch(selectedNamespace, (ns) => {
       if (_routeApplying) return;
+      pushHash(currentView.value, ns);
       refresh();
       loadCurrentView();
     });
@@ -4566,6 +4573,7 @@ const App = {
         accessLogAutoRefresh.value = false;
       }
       if (_routeApplying) return;
+      pushHash(view, selectedNamespace.value);
       if (view === 'topology') {
         nextTick(() => loadTopology());
       }
@@ -4623,24 +4631,37 @@ const App = {
     }
 
     onMounted(async () => {
-      // Apply initial route from URL before loading data
       const initial = parseHash();
+
       _routeApplying = true;
-      currentView.value = initial.view;
-      selectedNamespace.value = initial.ns;
-      _routeApplying = false;
-      // If no hash present, write the default so the URL is always canonical
-      if (!window.location.hash || window.location.hash === '#') {
-        window.history.replaceState(null, '', `#/${initial.view}`);
+      try {
+        currentView.value = initial.view;
+
+        // If no hash present, write the default (silent, no hashchange)
+        if (!window.location.hash || window.location.hash === '#') {
+          window.history.replaceState(null, '', `#/${initial.view}`);
+        } else {
+          // Canonicalise the URL with what we parsed (handles invalid views)
+          window.history.replaceState(null, '', `#/${initial.view}${initial.ns !== '(all)' ? '?ns=' + encodeURIComponent(initial.ns) : ''}`);
+        }
+
+        // Load namespaces first so the selector has options, then apply ns from URL
+        await loadNamespaces();
+        selectedNamespace.value = initial.ns;
+        await nextTick(); // flush watchers while flag is still true
+      } finally {
+        _routeApplying = false;
       }
 
-      // Handle browser back/forward
-      window.addEventListener('popstate', () => {
+      // Load data with the correct namespace
+      await refresh();
+      loadCurrentView();
+
+      // Handle browser back/forward and direct hash changes
+      window.addEventListener('hashchange', () => {
+        if (_skipNextHashChange) { _skipNextHashChange = false; return; }
         applyRoute(parseHash());
       });
-
-      await Promise.all([loadNamespaces(), refresh()]);
-      loadCurrentView();
     });
 
     return {
