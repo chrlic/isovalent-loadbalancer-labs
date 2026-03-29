@@ -29,6 +29,50 @@
     .resource-count { font-size: 2.5rem; font-weight: 700; line-height: 1; }
     .resource-label { font-size: 0.85rem; opacity: 0.8; }
     #cy-container { width: 100%; height: 100%; background: transparent; }
+    /* Deployment grid */
+    .deployment-grid-table th, .deployment-grid-table td {
+      border: 1px solid rgba(128,128,128,0.15);
+      vertical-align: top;
+      padding: 4px 6px;
+    }
+    .dgrid-corner {
+      background: rgb(var(--v-theme-surface));
+    }
+    .dgrid-dep-header {
+      text-align: center;
+      background: rgb(var(--v-theme-surface));
+      font-weight: 600;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    .dgrid-dep-header.dgrid-highlighted {
+      background: rgba(var(--v-theme-primary), 0.12);
+    }
+    .dgrid-tier-sep {
+      background: rgba(128,128,128,0.06);
+      padding: 2px 4px;
+    }
+    .dgrid-node-label {
+      background: rgb(var(--v-theme-surface));
+      white-space: nowrap;
+      padding: 4px 8px;
+      border-right: 2px solid rgba(128,128,128,0.2);
+    }
+    .dgrid-cell {
+      min-width: 150px;
+      padding: 4px 6px;
+    }
+    .dgrid-cell-active {
+      background: rgba(128,128,128,0.03);
+    }
+    .dgrid-cell-highlighted {
+      background: rgba(var(--v-theme-primary), 0.08);
+      outline: 1px solid rgba(var(--v-theme-primary), 0.3);
+    }
+    .dgrid-row-highlighted .dgrid-node-label {
+      background: rgba(var(--v-theme-primary), 0.1);
+    }
     .cy-tooltip {
       position: fixed;
       background: rgba(30,30,30,0.92);
@@ -559,7 +603,7 @@
             <v-btn variant="tonal" prepend-icon="mdi-refresh" size="small" @click="loadNodes" :loading="nodesLoading">Refresh</v-btn>
           </div>
           <v-row>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="4">
               <v-card rounded="lg" elevation="2">
                 <v-card-title class="d-flex align-center">
                   <v-icon class="mr-2" color="blue">mdi-layers-triple</v-icon>
@@ -581,7 +625,29 @@
                 </v-card-text>
               </v-card>
             </v-col>
-            <v-col cols="12" md="6">
+            <v-col cols="12" md="4">
+              <v-card rounded="lg" elevation="2">
+                <v-card-title class="d-flex align-center">
+                  <v-icon class="mr-2" color="teal">mdi-layers-triple</v-icon>
+                  T1-T2 Nodes
+                  <v-chip class="ml-2" size="small" variant="tonal" color="teal">{{ t1t2Nodes.length }}</v-chip>
+                </v-card-title>
+                <v-divider></v-divider>
+                <v-list density="compact" v-if="t1t2Nodes.length">
+                  <v-list-item v-for="n in t1t2Nodes" :key="n.metadata.name" :title="n.metadata.name">
+                    <template v-slot:prepend><v-icon color="teal" size="18">mdi-server</v-icon></template>
+                    <template v-slot:subtitle>{{ n.metadata.labels?.['kubernetes.io/hostname'] || '' }}</template>
+                    <template v-slot:append>
+                      <v-chip size="x-small" color="teal" variant="tonal">L3-L7</v-chip>
+                    </template>
+                  </v-list-item>
+                </v-list>
+                <v-card-text v-else class="text-center text-medium-emphasis pa-6">
+                  <div>No T1-T2 nodes found</div>
+                </v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" md="4">
               <v-card rounded="lg" elevation="2">
                 <v-card-title class="d-flex align-center">
                   <v-icon class="mr-2" color="purple">mdi-layers-triple-outline</v-icon>
@@ -623,6 +689,153 @@
               </v-card>
             </v-col>
           </v-row>
+        </div>
+
+        <!-- DEPLOYMENTS TOPOLOGY -->
+        <div v-if="currentView === 'clustertopology'" style="display:flex;flex-direction:column;height:calc(100vh - 64px - 32px);">
+          <div class="d-flex align-center mb-2" style="flex-shrink:0">
+            <v-icon class="mr-2" color="primary">mdi-graph</v-icon>
+            <span class="text-h6">Deployments Topology</span>
+            <v-spacer></v-spacer>
+            <v-btn-toggle v-model="clusterTopoView" mandatory density="compact" variant="outlined" class="mr-3">
+              <v-btn value="cards" size="small" prepend-icon="mdi-table">Grid</v-btn>
+              <v-btn value="graph" size="small" prepend-icon="mdi-graph">Graph</v-btn>
+            </v-btn-toggle>
+            <v-btn v-if="clusterTopoView === 'graph'" variant="tonal" prepend-icon="mdi-fit-to-screen" size="small" class="mr-2" @click="cyClusterFit()">Fit</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-refresh" size="small" @click="loadClusterTopology" :loading="clusterTopoLoading">Refresh</v-btn>
+          </div>
+
+          <!-- Graph view -->
+          <v-card v-if="clusterTopoView === 'graph'" rounded="lg" elevation="2" style="flex:1;min-height:0;overflow:hidden;">
+            <div id="cy-cluster-container" style="width:100%;height:100%;display:block;"></div>
+          </v-card>
+
+          <!-- Grid view wrapper -->
+          <div v-if="clusterTopoView === 'cards'" style="flex:1;overflow:auto;">
+
+          <!-- Legend -->
+          <div class="d-flex align-center flex-wrap ga-2 mb-3 mt-1" style="flex-shrink:0">
+            <v-chip size="small" variant="tonal" color="blue"   prepend-icon="mdi-layers-triple">T1 — L3/L4</v-chip>
+            <v-chip size="small" variant="tonal" color="teal"   prepend-icon="mdi-layers-triple">T1-T2 — L3-L7</v-chip>
+            <v-chip size="small" variant="tonal" color="purple" prepend-icon="mdi-layers-triple-outline">T2 — L5-L7</v-chip>
+            <v-divider vertical class="mx-1" style="height:20px"></v-divider>
+            <v-chip size="small" variant="tonal" color="green"  prepend-icon="mdi-ip-network">VIP</v-chip>
+            <v-chip size="small" variant="tonal" color="indigo" prepend-icon="mdi-lan">Service</v-chip>
+            <v-chip size="small" variant="tonal" color="orange" prepend-icon="mdi-cloud-upload">Deployment</v-chip>
+            <v-divider vertical class="mx-1" style="height:20px"></v-divider>
+            <span class="text-caption text-medium-emphasis">Click a badge to highlight its deployment scope</span>
+          </div>
+
+          <!-- Deployment × Node grid -->
+          <div v-if="deploymentGrid.columns.length" style="overflow-x:auto;">
+            <table class="deployment-grid-table" style="border-collapse:separate;border-spacing:0;min-width:100%;">
+              <colgroup>
+                <!-- node label column -->
+                <col style="min-width:120px;width:120px">
+                <!-- one col per deployment -->
+                <col v-for="col in deploymentGrid.columns" :key="col.key" style="min-width:180px">
+              </colgroup>
+              <thead>
+                <tr>
+                  <th class="dgrid-corner" style="position:sticky;left:0;z-index:3;"></th>
+                  <th
+                    v-for="col in deploymentGrid.columns"
+                    :key="col.key"
+                    class="dgrid-dep-header"
+                    :class="{ 'dgrid-highlighted': deploymentGridHighlight === col.key }"
+                    :style="'border-top: 3px solid ' + col.color + ';'"
+                  >
+                    <div class="d-flex align-center justify-center flex-wrap ga-1 pa-1">
+                      <v-icon size="14" color="orange">mdi-cloud-upload</v-icon>
+                      <span class="text-caption font-weight-bold">{{ col.depName || 'default' }}</span>
+                      <v-chip v-if="col.namespace" size="x-small" variant="tonal" :color="clusterTopoNsColor(col.namespace)" class="ml-1">{{ col.namespace }}</v-chip>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="(tierGroup, tgi) in deploymentGrid.tierGroups" :key="tierGroup.tier">
+                  <!-- Tier separator row -->
+                  <tr>
+                    <td
+                      :colspan="deploymentGrid.columns.length + 1"
+                      class="dgrid-tier-sep"
+                      :style="'border-left: 4px solid ' + tierGroup.color + ';'"
+                    >
+                      <div class="d-flex align-center ga-2 py-1 px-2">
+                        <v-icon size="14" :style="'color:' + tierGroup.color">{{ tierGroup.icon }}</v-icon>
+                        <span class="text-caption font-weight-bold" :style="'color:' + tierGroup.color">{{ tierGroup.label }}</span>
+                        <span class="text-caption text-medium-emphasis">{{ tierGroup.sublabel }}</span>
+                      </div>
+                    </td>
+                  </tr>
+                  <!-- One row per node in this tier -->
+                  <tr
+                    v-for="nodeRow in tierGroup.nodes"
+                    :key="nodeRow.nodeName"
+                    :class="{ 'dgrid-row-highlighted': deploymentGridHighlight && nodeRow.activeDeployments.has(deploymentGridHighlight) }"
+                  >
+                    <!-- Node label (sticky left) -->
+                    <td class="dgrid-node-label" style="position:sticky;left:0;z-index:1;">
+                      <div class="d-flex align-center ga-1">
+                        <v-icon size="14" :style="'color:' + tierGroup.color">mdi-server</v-icon>
+                        <span class="text-caption font-weight-medium">{{ nodeRow.nodeName }}</span>
+                      </div>
+                      <div v-if="nodeRow.ip" class="text-caption mono" style="opacity:0.55;font-size:10px;">{{ nodeRow.ip }}</div>
+                    </td>
+                    <!-- One cell per deployment column -->
+                    <td
+                      v-for="col in deploymentGrid.columns"
+                      :key="col.key"
+                      class="dgrid-cell"
+                      :class="{
+                        'dgrid-cell-active': nodeRow.activeDeployments.has(col.key),
+                        'dgrid-cell-highlighted': deploymentGridHighlight === col.key && nodeRow.activeDeployments.has(col.key)
+                      }"
+                    >
+                      <template v-if="nodeRow.activeDeployments.has(col.key)">
+                        <div class="d-flex flex-wrap ga-1 align-start">
+                          <!-- VIPs for this deployment (only on T1 / T1-T2 nodes) -->
+                          <template v-if="tierGroup.tier !== 't2'">
+                            <v-chip
+                              v-for="vip in deploymentGrid.cellContent[col.key]?.vips || []"
+                              :key="'v-'+vip"
+                              size="x-small"
+                              variant="tonal"
+                              color="green"
+                              prepend-icon="mdi-ip-network"
+                              style="cursor:pointer"
+                              @click="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                            >{{ vip }}</v-chip>
+                          </template>
+                          <!-- Services for this deployment -->
+                          <v-chip
+                            v-for="svc in (tierGroup.tier === 't2' ? (deploymentGrid.cellContent[col.key]?.t2services || []) : (deploymentGrid.cellContent[col.key]?.services || []))"
+                            :key="'s-'+svc"
+                            size="x-small"
+                            variant="tonal"
+                            color="indigo"
+                            prepend-icon="mdi-lan"
+                            style="cursor:pointer"
+                            @click="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                          >{{ svc }}</v-chip>
+                        </div>
+                      </template>
+                      <template v-else>
+                        <span class="text-caption" style="opacity:0.2">—</span>
+                      </template>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-center text-medium-emphasis pa-8">
+            <v-icon size="48" class="mb-2">mdi-graph-outline</v-icon>
+            <div>No data — click Refresh</div>
+          </div>
+
+          </div><!-- end grid view wrapper -->
         </div>
 
         <!-- ACCESS LOGS -->
@@ -714,11 +927,11 @@
           </v-card>
         </div>
 
-        <!-- TOPOLOGY -->
+        <!-- SERVICES TOPOLOGY -->
         <div v-if="currentView === 'topology'" style="display:flex;flex-direction:column;height:calc(100vh - 64px - 32px);">
           <div class="d-flex align-center mb-2" style="flex-shrink:0">
             <v-icon class="mr-2" color="primary">mdi-sitemap</v-icon>
-            <span class="text-h6">Service Topology</span>
+            <span class="text-h6">Services Topology</span>
             <template v-if="topoFocus">
               <v-icon class="mx-2" size="16" color="medium-emphasis">mdi-chevron-right</v-icon>
               <v-chip size="small" variant="flat" color="primary" closable @click:close="clearTopoFocus()">
@@ -2337,7 +2550,7 @@ const App = {
     // ── Hash-based routing ────────────────────────────────────────────────
     const VALID_VIEWS = new Set([
       'dashboard','lbservices','lbvips','lbbackendpools','lbdeployments',
-      'lbippools','bgpwizard','lbstatus','bgpstatus','nodes','accesslogs',
+      'lbippools','bgpwizard','lbstatus','bgpstatus','nodes','clustertopology','accesslogs',
       'secrets','topology','reference',
     ]);
 
@@ -2386,9 +2599,10 @@ const App = {
       { view: 'bgpwizard',        label: 'BGP Setup',          icon: 'mdi-router-network' },
       { view: 'bgpstatus',        label: 'BGP Status',         icon: 'mdi-chart-line' },
       { view: 'nodes',            label: 'Nodes',              icon: 'mdi-server' },
+      { view: 'clustertopology',  label: 'Deployments Topology', icon: 'mdi-graph' },
       { view: 'accesslogs',       label: 'Access Logs',        icon: 'mdi-text-box-search' },
       { view: 'secrets',          label: 'Secrets',            icon: 'mdi-lock' },
-      { view: 'topology',         label: 'Topology',           icon: 'mdi-sitemap' },
+      { view: 'topology',         label: 'Services Topology',  icon: 'mdi-sitemap' },
       { view: 'reference',        label: 'Reference',          icon: 'mdi-graph-outline' },
     ];
 
@@ -2583,6 +2797,7 @@ const App = {
       else if (view === 'bgpstatus') loadBGPStatus();
       else if (view === 'bgpwizard') loadBgpWizard();
       else if (view === 'nodes') loadNodes();
+      else if (view === 'clustertopology') loadClusterTopology();
       else if (view === 'secrets') loadSecrets();
       else if (view === 'topology') nextTick(() => loadTopology());
     }
@@ -3609,10 +3824,11 @@ const App = {
     const ciliumNodes = ref([]);
     const nodesLoading = ref(false);
     const t1Nodes = computed(() => ciliumNodes.value.filter(n => n.metadata?.labels?.['service.cilium.io/node'] === 't1'));
+    const t1t2Nodes = computed(() => ciliumNodes.value.filter(n => n.metadata?.labels?.['service.cilium.io/node'] === 't1-t2'));
     const t2Nodes = computed(() => ciliumNodes.value.filter(n => n.metadata?.labels?.['service.cilium.io/node'] === 't2'));
     const otherNodes = computed(() => ciliumNodes.value.filter(n => {
       const lbl = n.metadata?.labels?.['service.cilium.io/node'];
-      return lbl !== 't1' && lbl !== 't2';
+      return lbl !== 't1' && lbl !== 't1-t2' && lbl !== 't2';
     }));
 
     async function loadNodes() {
@@ -3624,6 +3840,664 @@ const App = {
         notify(`Failed to load nodes: ${e.message}`, 'error');
       } finally {
         nodesLoading.value = false;
+      }
+    }
+
+    // ── Cluster Topology ─────────────────────────────────────────────────
+    const clusterTopoLoading = ref(false);
+    const clusterTopoView = ref('cards'); // 'cards' | 'graph'
+    const clusterTopoData = reactive({ deployments: [], vips: [], services: [] });
+
+    const NS_COLORS = ['blue', 'green', 'orange', 'purple', 'teal', 'indigo', 'red', 'cyan', 'amber', 'pink'];
+    const _nsColorMap = {};
+    let _nsColorIdx = 0;
+    function clusterTopoNsColor(ns) {
+      if (!_nsColorMap[ns]) _nsColorMap[ns] = NS_COLORS[_nsColorIdx++ % NS_COLORS.length];
+      return _nsColorMap[ns];
+    }
+
+    // Determine which tiers a deployment's labelSelectors target.
+    // Returns a Set of 't1', 't1-t2', 't2'.
+    function _deploymentTiers(dep) {
+      const tiers = new Set();
+      const selectors = dep.spec?.nodes?.labelSelectors || {};
+      for (const [tierKey, selector] of Object.entries(selectors)) {
+        // tierKey is the role key (t1, t2, etc.) used in spec - we need to map
+        // it to actual node label values
+        if (selector?.matchLabels?.['service.cilium.io/node']) {
+          tiers.add(selector.matchLabels['service.cilium.io/node']);
+        }
+        if (selector?.matchExpressions) {
+          for (const expr of selector.matchExpressions) {
+            if (expr.key === 'service.cilium.io/node' && expr.operator === 'In') {
+              for (const v of (expr.values || [])) tiers.add(v);
+            }
+          }
+        }
+      }
+      return tiers;
+    }
+
+    // Evaluate a Kubernetes-style labelSelector against an object's labels.
+    function _matchesSelector(labels, selector) {
+      if (!selector) return false;
+      const lbl = labels || {};
+      if (selector.matchLabels) {
+        for (const [k, v] of Object.entries(selector.matchLabels)) {
+          if (lbl[k] !== v) return false;
+        }
+      }
+      if (selector.matchExpressions) {
+        for (const expr of selector.matchExpressions) {
+          const val = lbl[expr.key];
+          if (expr.operator === 'In'    && !(expr.values || []).includes(val)) return false;
+          if (expr.operator === 'NotIn' &&  (expr.values || []).includes(val)) return false;
+          if (expr.operator === 'Exists'     && val === undefined) return false;
+          if (expr.operator === 'DoesNotExist' && val !== undefined) return false;
+        }
+      }
+      return true;
+    }
+
+    // Build per-VIP → [serviceName] map within a namespace
+    function _vipServiceMap(services, ns) {
+      const m = {};
+      for (const svc of services) {
+        if ((svc.metadata?.namespace || '') !== ns) continue;
+        const vipRef = svc.spec?.vipRef;
+        if (vipRef) {
+          if (!m[vipRef]) m[vipRef] = [];
+          m[vipRef].push(svc.metadata?.name);
+        }
+      }
+      return m;
+    }
+
+    const clusterTopoTiers = computed(() => {
+      const deps = clusterTopoData.deployments;
+      const allVips = clusterTopoData.vips;
+      const allServices = clusterTopoData.services;
+
+      // Track which services are covered by at least one deployment (by ns+name)
+      const coveredSvcs = new Set();
+      const coveredVips = new Set();
+
+      const t1 = [], t1t2 = [], t2 = [], unresolved = [];
+
+      for (const dep of deps) {
+        const ns = dep.metadata?.namespace || '';
+        const depName = dep.metadata?.name || '';
+        const tiers = _deploymentTiers(dep);
+        const svcSelector = dep.spec?.services?.labelSelector;
+
+        // Match services in same namespace by labelSelector
+        const matchedSvcs = allServices.filter(s =>
+          (s.metadata?.namespace || '') === ns &&
+          _matchesSelector(s.metadata?.labels || {}, svcSelector)
+        );
+
+        matchedSvcs.forEach(s => coveredSvcs.add(`${ns}/${s.metadata?.name}`));
+
+        // Derive VIPs from matched services via vipRef
+        const vipSvcMap = {};
+        for (const svc of matchedSvcs) {
+          const vipRef = svc.spec?.vipRef;
+          if (vipRef) {
+            if (!vipSvcMap[vipRef]) vipSvcMap[vipRef] = [];
+            vipSvcMap[vipRef].push(svc.metadata?.name);
+            coveredVips.add(`${ns}/${vipRef}`);
+          }
+        }
+
+        // Only httpProxy, httpsProxy, tlsPassthrough services run on T2 (Envoy)
+        const T2_APP_TYPES = new Set(['httpProxy', 'httpsProxy', 'tlsPassthrough', 'tlsProxy']);
+        const t2Svcs = matchedSvcs.filter(s =>
+          Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k))
+        );
+        const t2VipSvcMap = {};
+        for (const svc of t2Svcs) {
+          const vipRef = svc.spec?.vipRef;
+          if (vipRef) {
+            if (!t2VipSvcMap[vipRef]) t2VipSvcMap[vipRef] = [];
+            t2VipSvcMap[vipRef].push(svc.metadata?.name);
+          }
+        }
+
+        const vipEntries = Object.entries(vipSvcMap).map(([vip, svcs]) => ({ vip, services: svcs }));
+        const t2VipEntries = Object.entries(t2VipSvcMap).map(([vip, svcs]) => ({ vip, services: svcs }));
+        const entry     = { deployment: depName, namespace: ns, vipEntries,     services: matchedSvcs.map(s => s.metadata?.name) };
+        const entryForT2 = { deployment: depName, namespace: ns, vipEntries: t2VipEntries, services: t2Svcs.map(s => s.metadata?.name) };
+
+        let placed = false;
+        if (tiers.has('t1'))    { t1.push({ ...entry, tier: 't1' });               placed = true; }
+        if (tiers.has('t1-t2')) { t1t2.push({ ...entry, tier: 't1-t2' });          placed = true; }
+        if (tiers.has('t2') && t2Svcs.length) { t2.push({ ...entryForT2, tier: 't2' }); placed = true; }
+        if (!placed)            { unresolved.push(entry); }
+      }
+
+      // Fallback: services/VIPs not covered by any deployment
+      const fallbackSvcs = allServices.filter(s => !coveredSvcs.has(`${s.metadata?.namespace || ''}/${s.metadata?.name}`));
+      const fallbackVips = allVips.filter(v => !coveredVips.has(`${v.metadata?.namespace || ''}/${v.metadata?.name}`));
+
+      // Group fallbacks by namespace
+      const fallbackNsMap = {};
+      for (const v of fallbackVips) {
+        const ns = v.metadata?.namespace || '(none)';
+        if (!fallbackNsMap[ns]) fallbackNsMap[ns] = { vipSvcMap: {}, svcNames: [] };
+        fallbackNsMap[ns].vipSvcMap[v.metadata?.name] = [];
+      }
+      for (const s of fallbackSvcs) {
+        const ns = s.metadata?.namespace || '(none)';
+        if (!fallbackNsMap[ns]) fallbackNsMap[ns] = { vipSvcMap: {}, svcNames: [] };
+        const vipRef = s.spec?.vipRef;
+        if (vipRef && fallbackNsMap[ns].vipSvcMap[vipRef] !== undefined) {
+          fallbackNsMap[ns].vipSvcMap[vipRef].push(s.metadata?.name);
+        } else {
+          fallbackNsMap[ns].svcNames.push(s.metadata?.name);
+        }
+      }
+
+      const T2_APP_TYPES_FB = new Set(['httpProxy', 'httpsProxy', 'tlsPassthrough', 'tlsProxy']);
+
+      for (const [ns, { vipSvcMap, svcNames }] of Object.entries(fallbackNsMap)) {
+        const vipEntries = Object.entries(vipSvcMap).map(([vip, svcs]) => ({ vip, services: svcs }));
+        const allSvcNames = [...new Set([...vipEntries.flatMap(ve => ve.services), ...svcNames])];
+        const fallbackEntry = { deployment: null, namespace: ns, vipEntries, services: allSvcNames };
+
+        // For T2 fallback: only services with proxy application types
+        const t2FallbackSvcs = allServices.filter(s => {
+          const sName = s.metadata?.name;
+          const sNs = s.metadata?.namespace || '';
+          return sNs === ns && allSvcNames.includes(sName) &&
+            Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES_FB.has(k));
+        });
+        const t2FbVipSvcMap = {};
+        for (const svc of t2FallbackSvcs) {
+          const vipRef = svc.spec?.vipRef;
+          if (vipRef) {
+            if (!t2FbVipSvcMap[vipRef]) t2FbVipSvcMap[vipRef] = [];
+            t2FbVipSvcMap[vipRef].push(svc.metadata?.name);
+          }
+        }
+        const t2FbVipEntries = Object.entries(t2FbVipSvcMap).map(([vip, svcs]) => ({ vip, services: svcs }));
+        const t2FbSvcNames = t2FallbackSvcs.map(s => s.metadata?.name);
+        const fallbackEntryT2 = { deployment: null, namespace: ns, vipEntries: t2FbVipEntries, services: t2FbSvcNames };
+
+        if (vipEntries.length) { t1.push({ ...fallbackEntry, tier: 't1' }); }
+        if (vipEntries.length || allSvcNames.length) { t1t2.push({ ...fallbackEntry, tier: 't1-t2' }); }
+        if (t2FbSvcNames.length) { t2.push({ ...fallbackEntryT2, tier: 't2' }); }
+      }
+
+      return { t1, t1t2, t2, unresolved };
+    });
+
+    // ── Deployment × Node grid ────────────────────────────────────────────
+    const deploymentGridHighlight = ref(null);
+
+    const deploymentGrid = computed(() => {
+      const deps     = clusterTopoData.deployments;
+      const allVips  = clusterTopoData.vips;
+      const allSvcs  = clusterTopoData.services;
+      const nodes    = ciliumNodes.value;
+      const T2_APP_TYPES = new Set(['httpProxy', 'httpsProxy', 'tlsPassthrough', 'tlsProxy']);
+
+      // ── Build columns: one per deployment + "default" ─────────────────
+      // Colors for deployment columns (cycle through)
+      const DEP_COL_COLORS = ['#5C6BC0','#26A69A','#7E57C2','#EF5350','#66BB6A','#FFA726','#29B6F6'];
+      const columns = deps.map((dep, i) => ({
+        key: dep.metadata?.name || `dep-${i}`,
+        depName: dep.metadata?.name || '',
+        namespace: dep.metadata?.namespace || '',
+        dep,
+        color: DEP_COL_COLORS[i % DEP_COL_COLORS.length],
+      }));
+      // "default" column for unmatched services
+      columns.push({ key: '__default', depName: 'default', namespace: '', dep: null, color: '#9E9E9E' });
+
+      // ── Determine which services/VIPs each deployment covers ─────────
+      const coveredSvcs = new Set();
+      const cellContent = {}; // key → { vips, services, t2services }
+      for (const col of columns) {
+        if (!col.dep) continue;
+        const ns = col.namespace;
+        const sel = col.dep.spec?.services?.labelSelector;
+        const matchedSvcs = allSvcs.filter(s =>
+          (s.metadata?.namespace || '') === ns &&
+          _matchesSelector(s.metadata?.labels || {}, sel)
+        );
+        matchedSvcs.forEach(s => coveredSvcs.add(`${ns}/${s.metadata?.name}`));
+        const vipSet = new Set();
+        for (const svc of matchedSvcs) {
+          if (svc.spec?.vipRef) vipSet.add(svc.spec.vipRef);
+        }
+        const t2svcs = matchedSvcs
+          .filter(s => Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k)))
+          .map(s => s.metadata?.name);
+        cellContent[col.key] = {
+          vips: [...vipSet],
+          services: matchedSvcs.map(s => s.metadata?.name),
+          t2services: t2svcs,
+        };
+      }
+      // default column: services/VIPs not covered by any deployment
+      const defSvcs = allSvcs.filter(s => !coveredSvcs.has(`${s.metadata?.namespace || ''}/${s.metadata?.name}`));
+      const defVipSet = new Set();
+      for (const svc of defSvcs) { if (svc.spec?.vipRef) defVipSet.add(svc.spec.vipRef); }
+      const defT2Svcs = defSvcs
+        .filter(s => Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k)))
+        .map(s => s.metadata?.name);
+      cellContent['__default'] = {
+        vips: [...defVipSet],
+        services: defSvcs.map(s => s.metadata?.name),
+        t2services: defT2Svcs,
+      };
+
+      // ── Build node–deployment affinity ────────────────────────────────
+      // Returns true if node matches any of the deployment's node labelSelectors
+      function nodeMatchesDeployment(node, dep) {
+        const sels = dep.spec?.nodes?.labelSelectors || {};
+        for (const sel of Object.values(sels)) {
+          if (_matchesSelector(node.metadata?.labels || {}, sel)) return true;
+        }
+        return false;
+      }
+
+      // Returns true if node is NOT matched by any named deployment's node selectors
+      function nodeInDefault(node) {
+        for (const d of deps) {
+          if (nodeMatchesDeployment(node, d)) return false;
+        }
+        return true;
+      }
+
+      // ── Build tier groups: T1, T1-T2, T2 ────────────────────────────
+      const TIER_DEFS = [
+        { tier: 't1',   label: 'T1 Nodes',    sublabel: 'VIP + all services · L3/L4', color: '#1565C0', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1' },
+        { tier: 't1-t2',label: 'T1-T2 Nodes', sublabel: 'VIP + proxy · L3-L7',        color: '#00796B', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1-t2' },
+        { tier: 't2',   label: 'T2 Nodes',    sublabel: 'L7 proxy · http/https/tls',  color: '#6A1B9A', icon: 'mdi-layers-triple-outline', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't2' },
+      ];
+
+      const tierGroups = TIER_DEFS.map(td => {
+        const tierNodes = nodes.filter(td.match);
+        const nodeRows = tierNodes.map(node => {
+          const activeDeployments = new Set();
+          for (const col of columns) {
+            const matches = col.dep ? nodeMatchesDeployment(node, col.dep) : nodeInDefault(node);
+            if (matches) activeDeployments.add(col.key);
+          }
+          const internalIp = node.spec?.addresses?.find(a => a.type === 'InternalIP')?.ip || '';
+          return { nodeName: node.metadata?.name, ip: internalIp, activeDeployments };
+        });
+        return { ...td, nodes: nodeRows };
+      }).filter(tg => tg.nodes.length > 0);
+
+      return { columns, tierGroups, cellContent };
+    });
+
+    function cyClusterFit() {
+      if (_cyClusTopo) _cyClusTopo.fit(undefined, 40);
+    }
+
+    function renderClusterTopo() {
+      const container = document.getElementById('cy-cluster-container');
+      if (!container) return;
+
+      if (_cyClusTopo) { _cyClusTopo.destroy(); _cyClusTopo = null; }
+
+      const T2_TYPES = new Set(['httpProxy', 'httpsProxy', 'tlsPassthrough', 'tlsProxy']);
+
+      const deps    = clusterTopoData.deployments;
+      const allVips = clusterTopoData.vips;
+      const allSvcs = clusterTopoData.services;
+      const knodes  = ciliumNodes.value;
+
+      // ── Layout constants ─────────────────────────────────────────────────
+      const NODE_W = 110, NODE_H = 30, GAP_Y = 14, GAP_X = 90;
+      const PAD_TOP = 50; // space for swimlane label
+
+      // Column x-centres (left to right: VIPs, Services, Deployments, T1 nodes, T1-T2 nodes, T2 nodes)
+      const X_VIP  = 80;
+      const X_SVC  = 230;
+      const X_DEP  = 390;
+      const X_T1   = 570;
+      const X_T1T2 = 720;
+      const X_T2   = 870;
+
+      // Swimlane band x boundaries
+      const BAND = {
+        t1:   { x: X_T1   - 75, w: 120 },
+        t1t2: { x: X_T1T2 - 75, w: 120 },
+        t2:   { x: X_T2   - 75, w: 120 },
+      };
+
+      // ── Build svcDepMap ──────────────────────────────────────────────────
+      const svcDepMap = {};
+      for (const dep of deps) {
+        const ns  = dep.metadata?.namespace || '';
+        const sel = dep.spec?.services?.labelSelector;
+        for (const s of allSvcs) {
+          if ((s.metadata?.namespace || '') !== ns) continue;
+          if (_matchesSelector(s.metadata?.labels || {}, sel))
+            svcDepMap[`${ns}/${s.metadata.name}`] = dep;
+        }
+      }
+
+      // ── Assign positions ──────────────────────────────────────────────────
+      // VIPs: group by namespace, stack vertically
+      const vipPos = {};
+      allVips.forEach((v, i) => {
+        vipPos[`${v.metadata.namespace}/${v.metadata.name}`] = {
+          x: X_VIP, y: PAD_TOP + i * (NODE_H + GAP_Y)
+        };
+      });
+
+      // Services: align to their VIP y where possible
+      const svcPos = {};
+      const svcYUsed = new Set();
+      for (const svc of allSvcs) {
+        const ns = svc.metadata?.namespace || '', nm = svc.metadata?.name || '';
+        const vipRef = svc.spec?.vipRef;
+        let y = vipRef ? (vipPos[`${ns}/${vipRef}`]?.y ?? 0) : 0;
+        while (svcYUsed.has(y)) y += NODE_H + GAP_Y;
+        svcYUsed.add(y);
+        svcPos[`${ns}/${nm}`] = { x: X_SVC, y };
+      }
+
+      // Deployments: centre on their services' y range
+      const depPos = {};
+      for (const dep of deps) {
+        const ns = dep.metadata?.namespace || '', nm = dep.metadata?.name || '';
+        const mySvcs = allSvcs.filter(s =>
+          (s.metadata?.namespace || '') === ns &&
+          _matchesSelector(s.metadata?.labels || {}, dep.spec?.services?.labelSelector)
+        );
+        const ys = mySvcs.map(s => svcPos[`${ns}/${s.metadata.name}`]?.y ?? 0);
+        const midY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : PAD_TOP;
+        depPos[`${ns}/${nm}`] = { x: X_DEP, y: midY };
+      }
+
+      // K8s nodes: stack within each tier column
+      const knodePos = {};
+      ['t1', 't1-t2', 't2'].forEach(tier => {
+        const col = tier === 't1' ? X_T1 : tier === 't1-t2' ? X_T1T2 : X_T2;
+        knodes
+          .filter(n => (n.metadata?.labels?.['service.cilium.io/node'] || '') === tier)
+          .forEach((n, i) => {
+            knodePos[n.metadata.name] = { x: col, y: PAD_TOP + i * (NODE_H + GAP_Y) };
+          });
+      });
+
+      // ── Compute total height for swimlane bands ──────────────────────────
+      const allY = [
+        ...Object.values(vipPos).map(p => p.y),
+        ...Object.values(svcPos).map(p => p.y),
+        ...Object.values(knodePos).map(p => p.y),
+      ];
+      const totalH = (allY.length ? Math.max(...allY) : 300) + NODE_H + GAP_Y + 20;
+
+      // ── Elements ──────────────────────────────────────────────────────────
+      const elements = [];
+
+      // Swimlane background rectangles (non-interactive)
+      const tierDefs = [
+        { id: 'band-t1',   x: BAND.t1.x,   y: 0, w: BAND.t1.w,   h: totalH, label: 'T1  —  L3/L4',    color: '#BBDEFB', border: '#1565C0', textColor: '#1565C0' },
+        { id: 'band-t1t2', x: BAND.t1t2.x, y: 0, w: BAND.t1t2.w, h: totalH, label: 'T1-T2  —  L3-L7', color: '#B2DFDB', border: '#00695C', textColor: '#00695C' },
+        { id: 'band-t2',   x: BAND.t2.x,   y: 0, w: BAND.t2.w,   h: totalH, label: 'T2  —  L7 proxy',  color: '#E1BEE7', border: '#6A1B9A', textColor: '#6A1B9A' },
+      ];
+      for (const b of tierDefs) {
+        elements.push({
+          data: { id: b.id, label: b.label, bx: b.x, by: b.y, bw: b.w, bh: b.h, bcolor: b.color, bborder: b.border, btextColor: b.textColor },
+          position: { x: b.x + b.w / 2, y: b.h / 2 },
+          classes: 'swimlane',
+          selectable: false, grabbable: false,
+        });
+      }
+
+      // VIP nodes
+      for (const v of allVips) {
+        const ns = v.metadata?.namespace || '', nm = v.metadata?.name || '';
+        const ip = v.status?.ipv4 || v.status?.ipv6 || '';
+        elements.push({
+          data: { id: `vip-${ns}-${nm}`, label: `${nm}${ip ? '\n' + ip : ''}`, namespace: ns },
+          position: vipPos[`${ns}/${nm}`],
+          classes: 'vip',
+        });
+      }
+
+      // Service nodes + VIP→service edges
+      for (const svc of allSvcs) {
+        const ns = svc.metadata?.namespace || '', nm = svc.metadata?.name || '';
+        const appTypes = Object.keys(svc.spec?.applications || {});
+        const isT2 = appTypes.some(k => T2_TYPES.has(k));
+        const appType = appTypes[0] || '';
+        const vipRef = svc.spec?.vipRef || '';
+        elements.push({
+          data: { id: `svc-${ns}-${nm}`, label: nm, namespace: ns, appType, isT2 },
+          position: svcPos[`${ns}/${nm}`],
+          classes: `service${isT2 ? ' svc-t2' : ' svc-t1only'}`,
+        });
+        if (vipRef) {
+          elements.push({ data: { id: `e-vs-${ns}-${nm}`, source: `vip-${ns}-${vipRef}`, target: `svc-${ns}-${nm}` }, classes: 'edge-vip-svc' });
+        }
+      }
+
+      // Deployment nodes + deployment→service edges
+      for (const dep of deps) {
+        const ns = dep.metadata?.namespace || '', nm = dep.metadata?.name || '';
+        const depId = `dep-${ns}-${nm}`;
+        elements.push({
+          data: { id: depId, label: nm, namespace: ns },
+          position: depPos[`${ns}/${nm}`],
+          classes: 'deployment',
+        });
+        // dep → service edges (one per matched service)
+        const tiers = _deploymentTiers(dep);
+        const sel   = dep.spec?.services?.labelSelector;
+        for (const svc of allSvcs) {
+          if ((svc.metadata?.namespace || '') !== ns) continue;
+          if (!_matchesSelector(svc.metadata?.labels || {}, sel)) continue;
+          elements.push({ data: { id: `e-ds-${ns}-${nm}-${svc.metadata.name}`, source: depId, target: `svc-${ns}-${svc.metadata.name}` }, classes: 'edge-dep-svc' });
+        }
+      }
+
+      // K8s node nodes
+      for (const n of knodes) {
+        const tier = n.metadata?.labels?.['service.cilium.io/node'] || '';
+        if (!knodePos[n.metadata.name]) continue;
+        elements.push({
+          data: { id: `kn-${n.metadata.name}`, label: n.metadata.name, tier },
+          position: knodePos[n.metadata.name],
+          classes: `knode knode-${tier.replace('-', '')}`,
+        });
+      }
+
+      // Service → k8s-node edges (one per node the service runs on)
+      for (const svc of allSvcs) {
+        const ns = svc.metadata?.namespace || '', nm = svc.metadata?.name || '';
+        const appTypes = Object.keys(svc.spec?.applications || {});
+        const isT2 = appTypes.some(k => T2_TYPES.has(k));
+        const dep = svcDepMap[`${ns}/${nm}`];
+        const tiers = dep ? _deploymentTiers(dep) : new Set(['t1', 't1-t2']);
+
+        for (const n of knodes) {
+          const nodeTier = n.metadata?.labels?.['service.cilium.io/node'] || '';
+          if (!knodePos[n.metadata.name]) continue;
+          const runsHere =
+            (nodeTier === 't1'   && tiers.has('t1')) ||
+            (nodeTier === 't1-t2' && tiers.has('t1-t2')) ||
+            (nodeTier === 't2'   && isT2 && tiers.has('t2'));
+          if (runsHere) {
+            elements.push({
+              data: { id: `e-sn-${ns}-${nm}-${n.metadata.name}`, source: `svc-${ns}-${nm}`, target: `kn-${n.metadata.name}`, isT2edge: nodeTier === 't2' },
+              classes: `edge-svc-node${nodeTier === 't2' ? ' edge-t2' : ''}`,
+            });
+          }
+        }
+      }
+
+      // ── Cytoscape init ────────────────────────────────────────────────────
+      _cyClusTopo = cytoscape({
+        container,
+        elements,
+        style: [
+          {
+            selector: '.swimlane',
+            style: {
+              'shape': 'rectangle',
+              'background-color': 'data(bcolor)',
+              'background-opacity': 0.35,
+              'border-color': 'data(bborder)',
+              'border-width': 2,
+              'border-opacity': 0.6,
+              'label': 'data(label)',
+              'text-valign': 'top',
+              'text-halign': 'center',
+              'font-size': 11,
+              'font-weight': 'bold',
+              'color': 'data(btextColor)',
+              'text-margin-y': 6,
+              'width': ele => ele.data('bw'),
+              'height': ele => ele.data('bh'),
+              'events': 'no',
+            }
+          },
+          {
+            selector: '.vip',
+            style: {
+              'shape': 'round-rectangle',
+              'background-color': '#E8F5E9',
+              'border-color': '#2E7D32',
+              'border-width': 2,
+              'label': 'data(label)',
+              'font-size': 9,
+              'color': '#1B5E20',
+              'text-valign': 'center',
+              'text-wrap': 'wrap',
+              'width': NODE_W, 'height': NODE_H + 6,
+            }
+          },
+          {
+            selector: '.service',
+            style: {
+              'shape': 'round-rectangle',
+              'label': 'data(label)',
+              'font-size': 9,
+              'text-valign': 'center',
+              'width': NODE_W, 'height': NODE_H,
+            }
+          },
+          {
+            selector: '.svc-t2',
+            style: {
+              'background-color': '#E8EAF6',
+              'border-color': '#283593',
+              'border-width': 2,
+              'color': '#1A237E',
+            }
+          },
+          {
+            selector: '.svc-t1only',
+            style: {
+              'background-color': '#E3F2FD',
+              'border-color': '#1565C0',
+              'border-width': 1.5,
+              'border-style': 'dashed',
+              'color': '#0D47A1',
+            }
+          },
+          {
+            selector: '.deployment',
+            style: {
+              'shape': 'round-rectangle',
+              'background-color': '#FFF3E0',
+              'border-color': '#E65100',
+              'border-width': 2,
+              'label': 'data(label)',
+              'font-size': 10,
+              'font-weight': 'bold',
+              'color': '#E65100',
+              'text-valign': 'center',
+              'width': NODE_W, 'height': NODE_H + 4,
+            }
+          },
+          {
+            selector: '.knode',
+            style: {
+              'shape': 'round-rectangle',
+              'background-color': '#ECEFF1',
+              'border-color': '#607D8B',
+              'border-width': 1.5,
+              'label': 'data(label)',
+              'font-size': 9,
+              'color': '#37474F',
+              'text-valign': 'center',
+              'width': NODE_W - 20, 'height': NODE_H,
+            }
+          },
+          {
+            selector: '.knode-t1',
+            style: { 'background-color': '#BBDEFB', 'border-color': '#1565C0' }
+          },
+          {
+            selector: '.knode-t1t2',
+            style: { 'background-color': '#B2DFDB', 'border-color': '#00695C' }
+          },
+          {
+            selector: '.knode-t2',
+            style: { 'background-color': '#E1BEE7', 'border-color': '#6A1B9A' }
+          },
+          { selector: '.edge-vip-svc',  style: { 'line-color': '#43A047', 'target-arrow-color': '#43A047', 'target-arrow-shape': 'triangle', 'width': 1.5, 'arrow-scale': 0.7 } },
+          { selector: '.edge-dep-svc',  style: { 'line-color': '#FB8C00', 'target-arrow-color': '#FB8C00', 'target-arrow-shape': 'triangle', 'width': 1, 'line-style': 'dashed', 'arrow-scale': 0.7, 'opacity': 0.7 } },
+          { selector: '.edge-svc-node', style: { 'line-color': '#7986CB', 'target-arrow-color': '#7986CB', 'target-arrow-shape': 'triangle', 'width': 1, 'arrow-scale': 0.7, 'opacity': 0.5 } },
+          { selector: '.edge-t2',       style: { 'line-color': '#9C27B0', 'target-arrow-color': '#9C27B0', 'opacity': 0.6 } },
+          { selector: '.faded',         style: { 'opacity': 0.12 } },
+        ],
+        layout: { name: 'preset' },
+        userZoomingEnabled: true,
+        userPanningEnabled: true,
+        boxSelectionEnabled: false,
+      });
+
+      // Tap to highlight neighbourhood
+      _cyClusTopo.on('tap', 'node', function(evt) {
+        if (evt.target.hasClass('swimlane')) return;
+        _cyClusTopo.elements().removeClass('faded');
+        _cyClusTopo.elements().not(evt.target.closedNeighborhood()).not('.swimlane').addClass('faded');
+      });
+      _cyClusTopo.on('tap', function(evt) {
+        if (evt.target === _cyClusTopo) _cyClusTopo.elements().removeClass('faded');
+      });
+
+      _cyClusTopo.fit(undefined, 40);
+    }
+
+    async function loadClusterTopology() {
+      clusterTopoLoading.value = true;
+      try {
+        // Cluster topology always needs ALL namespaces — bypass apiFetch's ns filter
+        async function fetchAll(path) {
+          const resp = await fetch(API + path);
+          if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
+          return resp.json();
+        }
+        const [deps, vips, svcs, nodes] = await Promise.all([
+          fetchAll('/api/lbdeployments'),
+          fetchAll('/api/lbvips'),
+          fetchAll('/api/lbservices'),
+          fetchAll('/api/ciliumnodes'),
+        ]);
+        clusterTopoData.deployments = Array.isArray(deps) ? deps : (deps?.items || []);
+        clusterTopoData.vips = Array.isArray(vips) ? vips : (vips?.items || []);
+        clusterTopoData.services = Array.isArray(svcs) ? svcs : (svcs?.items || []);
+        ciliumNodes.value = Array.isArray(nodes) ? nodes : (nodes?.items || []);
+        if (clusterTopoView.value === 'graph') {
+          await nextTick();
+          renderClusterTopo();
+        }
+      } catch (e) {
+        notify(`Failed to load cluster topology: ${e.message}`, 'error');
+      } finally {
+        clusterTopoLoading.value = false;
       }
     }
 
@@ -3921,6 +4795,7 @@ const App = {
     const topoShowAll = ref(false); // when focus active: false=hide dimmed, true=show dimmed grayed out
     let _cy = null;
     let _cyTooltip = null;
+    let _cyClusTopo = null;
     const _expandedPools = new Set(); // pool node IDs currently expanded
 
     function openTopologyFor(item, resourceType) {
@@ -4580,6 +5455,10 @@ const App = {
       loadCurrentView();
     });
 
+    watch(clusterTopoView, (v) => {
+      if (v === 'graph') nextTick(() => renderClusterTopo());
+    });
+
     watch(accessLogAutoRefresh, (on) => {
       clearInterval(accessLogTimer);
       accessLogTimer = null;
@@ -4691,7 +5570,10 @@ const App = {
       bgpWizard, bgpWizardYaml, loadBgpWizard, applyBgpWizard, loadCurrentView,
       bgpPeerHeaders, bgpRouteHeaders, loadBGPStatus,
       // Nodes
-      ciliumNodes, nodesLoading, t1Nodes, t2Nodes, otherNodes, loadNodes,
+      ciliumNodes, nodesLoading, t1Nodes, t1t2Nodes, t2Nodes, otherNodes, loadNodes,
+      clusterTopoLoading, clusterTopoView, clusterTopoTiers, clusterTopoNsColor, loadClusterTopology,
+      deploymentGrid, deploymentGridHighlight,
+      renderClusterTopo, cyClusterFit,
       // Access Logs
       accessLogVip, accessLogLines, accessLogLoading, accessLogAutoRefresh, fetchAccessLogs,
       // Secrets

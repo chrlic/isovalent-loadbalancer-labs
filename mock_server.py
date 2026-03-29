@@ -229,7 +229,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "web-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:20:00Z"},
+        "metadata": {"name": "web-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:20:00Z", "labels": {"app": "web", "ilb": "true", "deployment": "prod"}},
         "spec": {
             "vipRef": "web-vip",
             "applications": {
@@ -265,7 +265,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "admin-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:22:00Z"},
+        "metadata": {"name": "admin-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:22:00Z", "labels": {"app": "admin", "ilb": "true", "deployment": "prod"}},
         "spec": {
             "vipRef": "web-vip",
             "applications": {
@@ -297,7 +297,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "api-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:21:00Z"},
+        "metadata": {"name": "api-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:21:00Z", "labels": {"app": "api", "ilb": "true", "deployment": "prod"}},
         "spec": {
             "vipRef": "api-vip",
             "applications": {
@@ -336,7 +336,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "grpc-service", "namespace": "prod", "creationTimestamp": "2024-01-17T08:10:00Z"},
+        "metadata": {"name": "grpc-service", "namespace": "prod", "creationTimestamp": "2024-01-17T08:10:00Z", "labels": {"app": "grpc", "ilb": "true", "deployment": "prod"}},
         "spec": {
             "vipRef": "grpc-vip",
             "applications": {
@@ -361,7 +361,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "metrics-service", "namespace": "staging", "creationTimestamp": "2024-01-16T09:10:00Z"},
+        "metadata": {"name": "metrics-service", "namespace": "staging", "creationTimestamp": "2024-01-16T09:10:00Z", "labels": {"ilb": "true", "tier": "monitoring", "deployment": "staging"}},
         "spec": {
             "vipRef": "metrics-vip",
             "applications": {
@@ -378,7 +378,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "worker-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:10:00Z"},
+        "metadata": {"name": "worker-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:10:00Z", "labels": {"ilb": "true", "tier": "worker", "deployment": "staging"}},
         "spec": {
             "vipRef": "internal-vip",
             "applications": {
@@ -400,7 +400,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "monitor-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:20:00Z"},
+        "metadata": {"name": "monitor-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:20:00Z", "labels": {"ilb": "true", "tier": "worker", "deployment": "staging"}},
         "spec": {
             "vipRef": "internal-vip",
             "applications": {
@@ -424,7 +424,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "cache-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:20:00Z"},
+        "metadata": {"name": "cache-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:20:00Z", "labels": {"ilb": "true", "app": "cache", "deployment": "infra"}},
         "spec": {
             "vipRef": "cache-vip",
             "applications": {
@@ -441,7 +441,7 @@ LBSERVICES = [
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {"name": "proxy-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:21:00Z"},
+        "metadata": {"name": "proxy-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:21:00Z", "labels": {"ilb": "true", "app": "proxy", "deployment": "infra"}},
         "spec": {
             "vipRef": "proxy-vip",
             "applications": {
@@ -479,7 +479,15 @@ LBDEPLOYMENTS = [
         },
         "spec": {
             "replicas": 3,
-            "nodeSelector": {"matchLabels": {"service.cilium.io/node": "t1"}},
+            "services": {
+                "labelSelector": {"matchLabels": {"deployment": "prod"}},
+            },
+            "nodes": {
+                "labelSelectors": {
+                    "t1": {"matchLabels": {"service.cilium.io/node": "t1"}},
+                    "t2": {"matchLabels": {"service.cilium.io/node": "t2"}},
+                }
+            },
         },
         "status": {
             "readyReplicas": 3,
@@ -496,7 +504,15 @@ LBDEPLOYMENTS = [
         },
         "spec": {
             "replicas": 1,
-            "nodeSelector": {"matchLabels": {"service.cilium.io/node": "t1"}},
+            # staging uses t1-t2 nodes (combined tier) instead of separate t1+t2
+            "services": {
+                "labelSelector": {"matchLabels": {"deployment": "staging"}},
+            },
+            "nodes": {
+                "labelSelectors": {
+                    "t1": {"matchExpressions": [{"key": "service.cilium.io/node", "operator": "In", "values": ["t1", "t1-t2"]}]},
+                }
+            },
         },
         "status": {
             "readyReplicas": 1,
@@ -513,7 +529,15 @@ LBDEPLOYMENTS = [
         },
         "spec": {
             "replicas": 2,
-            "nodeSelector": {"matchLabels": {"service.cilium.io/node": "t1"}},
+            "services": {
+                "labelSelector": {"matchLabels": {"deployment": "infra"}},
+            },
+            "nodes": {
+                "labelSelectors": {
+                    "t1": {"matchLabels": {"service.cilium.io/node": "t1"}},
+                    "t2": {"matchLabels": {"service.cilium.io/node": "t2"}},
+                }
+            },
         },
         "status": {
             "readyReplicas": 2,
@@ -646,7 +670,7 @@ CILIUM_LB_STATUS = {
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
-            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": {
                 "status": "OK", "ok": 5, "total": 5,
                 "endpoints": [
@@ -675,7 +699,7 @@ CILIUM_LB_STATUS = {
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
-            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": {
                 "status": "OK", "ok": 2, "total": 2,
                 "endpoints": [
@@ -701,7 +725,7 @@ CILIUM_LB_STATUS = {
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
-            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": {
                 "status": "DEG", "ok": 6, "total": 7,
                 "endpoints": [
@@ -736,7 +760,7 @@ CILIUM_LB_STATUS = {
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
-            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": None,
             "backendpoolStatus": {"status": "OK", "groups": [
                 {"name": "api-v2-backends", "ok": 3, "total": 3, "status": "OK"},
@@ -753,8 +777,8 @@ CILIUM_LB_STATUS = {
             "status": "DEGRADED",
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
-            "t1NodeStatus": {"status": "DEG", "ok": 0, "total": 1},
-            "t2NodeStatus": {"status": "OK", "ok": 1, "total": 1},
+            "t1NodeStatus": {"status": "DEG", "ok": 0, "total": 4},
+            "t2NodeStatus": None,
             "t2BackendHealthcheckStatus": None,
             "backendpoolStatus": {"status": "DEG", "groups": [
                 {"name": "metrics-backends", "ok": 0, "total": 1, "status": "DEG"},
@@ -771,8 +795,8 @@ CILIUM_LB_STATUS = {
             "status": "ONLINE",
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
-            "t1NodeStatus": {"status": "OK", "ok": 1, "total": 1},
-            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t1NodeStatus": {"status": "OK", "ok": 4, "total": 4},
+            "t2NodeStatus": None,
             "t2BackendHealthcheckStatus": {
                 "status": "OK", "ok": 2, "total": 2,
                 "endpoints": [
@@ -793,8 +817,8 @@ CILIUM_LB_STATUS = {
             "status": "ONLINE",
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
-            "t1NodeStatus": {"status": "OK", "ok": 1, "total": 1},
-            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t1NodeStatus": {"status": "OK", "ok": 4, "total": 4},
+            "t2NodeStatus": None,
             "t2BackendHealthcheckStatus": {
                 "status": "OK", "ok": 2, "total": 2,
                 "endpoints": [
@@ -818,8 +842,8 @@ CILIUM_LB_STATUS = {
             "status": "ONLINE",
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
-            "t1NodeStatus": {"status": "OK", "ok": 2, "total": 2},
-            "t2NodeStatus": {"status": "OK", "ok": 3, "total": 3},
+            "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": None,
             "backendpoolStatus": {"status": "OK", "groups": [
                 {"name": "redis-backends", "ok": 3, "total": 3, "status": "OK"},
@@ -836,7 +860,7 @@ CILIUM_LB_STATUS = {
             "status": "DEGRADED",
             "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
             "bgpRouteStatus": {"status": "OK"},
-            "t1NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
             "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
             "t2BackendHealthcheckStatus": {
                 "status": "DEG", "ok": 1, "total": 2,
@@ -955,6 +979,7 @@ CILIUM_NODES = [
                 "kubernetes.io/hostname": "node-1",
                 "kubernetes.io/arch": "amd64",
                 "kubernetes.io/os": "linux",
+                "deployment": "prod",
             },
             "creationTimestamp": "2024-01-10T08:00:00Z",
         },
@@ -974,6 +999,7 @@ CILIUM_NODES = [
                 "kubernetes.io/hostname": "node-2",
                 "kubernetes.io/arch": "amd64",
                 "kubernetes.io/os": "linux",
+                "deployment": "infra",
             },
             "creationTimestamp": "2024-01-10T08:01:00Z",
         },
@@ -1008,16 +1034,17 @@ CILIUM_NODES = [
         "metadata": {
             "name": "node-4",
             "labels": {
-                "service.cilium.io/node": "t2",
+                "service.cilium.io/node": "t1-t2",
                 "kubernetes.io/hostname": "node-4",
                 "kubernetes.io/arch": "amd64",
                 "kubernetes.io/os": "linux",
+                "deployment": "staging",
             },
             "creationTimestamp": "2024-01-10T08:03:00Z",
         },
         "spec": {
             "addresses": [
-                {"type": "InternalIP", "ip": "10.0.2.10"},
+                {"type": "InternalIP", "ip": "10.0.3.10"},
                 {"type": "CiliumInternalIP", "ip": "10.244.4.1"},
             ]
         },
@@ -1031,13 +1058,34 @@ CILIUM_NODES = [
                 "kubernetes.io/hostname": "node-5",
                 "kubernetes.io/arch": "amd64",
                 "kubernetes.io/os": "linux",
+                "deployment": "prod",
             },
             "creationTimestamp": "2024-01-10T08:04:00Z",
         },
         "spec": {
             "addresses": [
-                {"type": "InternalIP", "ip": "10.0.2.11"},
+                {"type": "InternalIP", "ip": "10.0.2.10"},
                 {"type": "CiliumInternalIP", "ip": "10.244.5.1"},
+            ]
+        },
+        "status": {"conditions": []},
+    },
+    {
+        "metadata": {
+            "name": "node-6",
+            "labels": {
+                "service.cilium.io/node": "t2",
+                "kubernetes.io/hostname": "node-6",
+                "kubernetes.io/arch": "amd64",
+                "kubernetes.io/os": "linux",
+                "deployment": "infra",
+            },
+            "creationTimestamp": "2024-01-10T08:05:00Z",
+        },
+        "spec": {
+            "addresses": [
+                {"type": "InternalIP", "ip": "10.0.2.11"},
+                {"type": "CiliumInternalIP", "ip": "10.244.6.1"},
             ]
         },
         "status": {"conditions": []},
