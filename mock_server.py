@@ -14,13 +14,13 @@ PORT = int(os.environ.get("PORT", 8080))
 
 # ── Fixture data ───────────────────────────────────────────────────────────────
 
-NAMESPACES = ["default", "prod", "staging", "kube-system"]
+NAMESPACES = ["default", "prod", "staging", "infra", "kube-system"]
 
 SUMMARY = {
-    "lbservices": 3,
-    "lbvips": 4,
-    "lbbackendpools": 3,
-    "lbdeployments": 2,
+    "lbservices": 9,
+    "lbvips": 7,
+    "lbbackendpools": 9,
+    "lbdeployments": 3,
     "lbippools": 1,
     "bgpclusterconfigs": 1,
     "bgppeerconfigs": 1,
@@ -49,142 +49,187 @@ LBIPPOOLS = [
 ]
 
 LBVIPS = [
+    # Scenario A: web-vip shared by 2 services (web-service HTTP port 80, admin-service HTTPS port 443)
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBVIP",
-        "metadata": {
-            "name": "web-vip",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:05:00Z",
-        },
-        "spec": {
-            "addressFamily": "ipv4",
-            "ipv4Request": "10.100.0.10",
-        },
-        "status": {
-            "ipv4": "10.100.0.10",
-            "conditions": [{"type": "Allocated", "status": "True"}],
-        },
+        "metadata": {"name": "web-vip", "namespace": "prod", "creationTimestamp": "2024-01-15T10:05:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.0.10"},
+        "status": {"ipv4": "10.100.0.10", "conditions": [{"type": "Allocated", "status": "True"}]},
     },
+    # Scenario B: api-vip used by api-service with 3 routes to 3 different backend pools
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBVIP",
-        "metadata": {
-            "name": "api-vip",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:06:00Z",
-        },
-        "spec": {
-            "addressFamily": "ipv4",
-            "ipv4Request": "10.100.0.11",
-        },
-        "status": {
-            "ipv4": "10.100.0.11",
-            "conditions": [{"type": "Allocated", "status": "True"}],
-        },
+        "metadata": {"name": "api-vip", "namespace": "prod", "creationTimestamp": "2024-01-15T10:06:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.0.11"},
+        "status": {"ipv4": "10.100.0.11", "conditions": [{"type": "Allocated", "status": "True"}]},
     },
+    # Scenario C: grpc-vip used by grpc-service which shares api-v2-backends with api-service (cross-VIP pool sharing)
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBVIP",
-        "metadata": {
-            "name": "metrics-vip",
-            "namespace": "staging",
-            "creationTimestamp": "2024-01-16T09:00:00Z",
-        },
-        "spec": {
-            "addressFamily": "ipv4",
-            "ipv4Request": "10.100.0.20",
-        },
-        "status": {
-            "ipv4": "10.100.0.20",
-            "conditions": [{"type": "Allocated", "status": "True"}],
-        },
+        "metadata": {"name": "grpc-vip", "namespace": "prod", "creationTimestamp": "2024-01-17T08:00:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.0.30"},
+        "status": {"ipv4": "10.100.0.30", "conditions": [{"type": "Allocated", "status": "True"}]},
     },
+    # Scenario D: metrics-vip with degraded TCP service
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBVIP",
-        "metadata": {
-            "name": "grpc-vip",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-17T08:00:00Z",
-        },
-        "spec": {
-            "addressFamily": "ipv4",
-            "ipv4Request": "10.100.0.30",
-        },
-        "status": {
-            "ipv4": "10.100.0.30",
-            "conditions": [{"type": "Allocated", "status": "True"}],
-        },
+        "metadata": {"name": "metrics-vip", "namespace": "staging", "creationTimestamp": "2024-01-16T09:00:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.0.20"},
+        "status": {"ipv4": "10.100.0.20", "conditions": [{"type": "Allocated", "status": "True"}]},
+    },
+    # Scenario E: internal-vip used by two services in staging that share the same backend pool
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBVIP",
+        "metadata": {"name": "internal-vip", "namespace": "staging", "creationTimestamp": "2024-01-18T08:00:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.0.40"},
+        "status": {"ipv4": "10.100.0.40", "conditions": [{"type": "Allocated", "status": "True"}]},
+    },
+
+    # --- infra namespace ---
+
+    # Scenario F: cache-vip for cache-service (TCP, single route)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBVIP",
+        "metadata": {"name": "cache-vip", "namespace": "infra", "creationTimestamp": "2024-02-01T08:00:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.1.10"},
+        "status": {"ipv4": "10.100.1.10", "conditions": [{"type": "Allocated", "status": "True"}]},
+    },
+    # Scenario G: proxy-vip for proxy-service (HTTP, 2 routes, one backend degraded)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBVIP",
+        "metadata": {"name": "proxy-vip", "namespace": "infra", "creationTimestamp": "2024-02-01T08:05:00Z"},
+        "spec": {"addressFamily": "ipv4", "ipv4Request": "10.100.1.11"},
+        "status": {"ipv4": "10.100.1.11", "conditions": [{"type": "Allocated", "status": "True"}]},
     },
 ]
 
 LBBACKENDPOOLS = [
+    # --- prod namespace ---
+
+    # Scenario A: web-service routes to web-backends (main) and static-backends (shared)
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBBackendPool",
-        "metadata": {
-            "name": "web-backends",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:10:00Z",
-        },
-        "spec": {
-            "backends": [
-                {"ip": "192.168.1.10", "port": 8080, "weight": 1},
-                {"ip": "192.168.1.11", "port": 8080, "weight": 1},
-                {"ip": "192.168.1.12", "port": 8080, "weight": 1},
-            ]
-        },
-        "status": {
-            "conditions": [{"type": "Ready", "status": "True"}]
-        },
+        "metadata": {"name": "web-backends", "namespace": "prod", "creationTimestamp": "2024-01-15T10:10:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.1.10", "port": 8080, "weight": 1},
+            {"ip": "192.168.1.11", "port": 8080, "weight": 1},
+            {"ip": "192.168.1.12", "port": 8080, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     },
+    # Scenario A: admin-service (shares web-vip) routes to admin-backends
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBBackendPool",
-        "metadata": {
-            "name": "api-backends",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:11:00Z",
-        },
-        "spec": {
-            "backends": [
-                {"ip": "192.168.2.10", "port": 9090, "weight": 2},
-                {"ip": "192.168.2.11", "port": 9090, "weight": 1},
-            ]
-        },
-        "status": {
-            "conditions": [{"type": "Ready", "status": "True"}]
-        },
+        "metadata": {"name": "admin-backends", "namespace": "prod", "creationTimestamp": "2024-01-15T10:12:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.1.20", "port": 8443, "weight": 1},
+            {"ip": "192.168.1.21", "port": 8443, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     },
+    # Scenario B: api-service has 3 routes: /v1, /v2, /static — each to its own pool
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBBackendPool",
-        "metadata": {
-            "name": "metrics-backends",
-            "namespace": "staging",
-            "creationTimestamp": "2024-01-16T09:05:00Z",
-        },
-        "spec": {
-            "backends": [
-                {"ip": "192.168.3.10", "port": 9091, "weight": 1},
-            ]
-        },
-        "status": {
-            "conditions": [{"type": "Ready", "status": "True"}]
-        },
+        "metadata": {"name": "api-v1-backends", "namespace": "prod", "creationTimestamp": "2024-01-15T10:13:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.2.10", "port": 9090, "weight": 2},
+            {"ip": "192.168.2.11", "port": 9090, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+    # Scenario B+C: api-v2-backends shared by api-service (/v2 route) AND grpc-service (different VIP)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "api-v2-backends", "namespace": "prod", "creationTimestamp": "2024-01-15T10:14:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.2.20", "port": 9091, "weight": 1},
+            {"ip": "192.168.2.21", "port": 9091, "weight": 1},
+            {"ip": "192.168.2.22", "port": 9091, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+    # Scenario A+B: static-backends shared by web-service (/static route, web-vip) AND api-service (/static route, api-vip)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "static-backends", "namespace": "prod", "creationTimestamp": "2024-01-15T10:15:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.4.10", "port": 8081, "weight": 1},
+            {"ip": "192.168.4.11", "port": 8081, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+
+    # --- staging namespace ---
+
+    # Scenario D: metrics-service (degraded)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "metrics-backends", "namespace": "staging", "creationTimestamp": "2024-01-16T09:05:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.3.10", "port": 9091, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+    # Scenario E: shared-backends used by both worker-service and monitor-service (same internal-vip)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "shared-backends", "namespace": "staging", "creationTimestamp": "2024-01-18T08:05:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.5.10", "port": 7070, "weight": 1},
+            {"ip": "192.168.5.11", "port": 7070, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+
+    # --- infra namespace ---
+
+    # Scenario F: redis-backends for cache-service (all healthy)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "redis-backends", "namespace": "infra", "creationTimestamp": "2024-02-01T08:10:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.6.10", "port": 6379, "weight": 1},
+            {"ip": "192.168.6.11", "port": 6379, "weight": 1},
+            {"ip": "192.168.6.12", "port": 6379, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+    },
+    # Scenario G: proxy-backends for proxy-service (one backend degraded)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBBackendPool",
+        "metadata": {"name": "proxy-backends", "namespace": "infra", "creationTimestamp": "2024-02-01T08:11:00Z"},
+        "spec": {"backends": [
+            {"ip": "192.168.6.20", "port": 3128, "weight": 1},
+            {"ip": "192.168.6.21", "port": 3128, "weight": 1},
+        ]},
+        "status": {"conditions": [{"type": "Ready", "status": "True"}]},
     },
 ]
 
 LBSERVICES = [
+    # ── Scenario A: two services share web-vip (different ports) ──────────────
+    # web-service: HTTP :80 on web-vip, 3 routes to 2 different backend pools
+    #   /static → static-backends  (static-backends also used by api-service = cross-VIP sharing)
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {
-            "name": "web-service",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:20:00Z",
-        },
+        "metadata": {"name": "web-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:20:00Z"},
         "spec": {
             "vipRef": "web-vip",
             "applications": {
@@ -196,25 +241,63 @@ LBSERVICES = [
                             "matchHostNames": ["www.example.com", "example.com"],
                             "matchPathType": "Prefix",
                             "matchPathValue": "/",
-                        }
+                        },
+                        {
+                            "backendRef": "web-backends",
+                            "matchHostNames": ["www.example.com"],
+                            "matchPathType": "Exact",
+                            "matchPathValue": "/health",
+                        },
+                        {
+                            # shared with api-service (cross-VIP pool sharing)
+                            "backendRef": "static-backends",
+                            "matchHostNames": ["www.example.com", "example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/static",
+                        },
                     ],
                 }
             },
         },
-        "status": {
-            "conditions": [
-                {"type": "Ready", "status": "True", "reason": "ServiceReady"}
-            ]
-        },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
     },
+    # admin-service: HTTPS :443 on web-vip (same VIP, different port/service)
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {
-            "name": "api-service",
-            "namespace": "prod",
-            "creationTimestamp": "2024-01-15T10:21:00Z",
+        "metadata": {"name": "admin-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:22:00Z"},
+        "spec": {
+            "vipRef": "web-vip",
+            "applications": {
+                "httpsProxy": {
+                    "port": 443,
+                    "tlsSecretRef": "web-basic-auth",
+                    "routes": [
+                        {
+                            "backendRef": "admin-backends",
+                            "matchHostNames": ["admin.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/admin",
+                        },
+                        {
+                            "backendRef": "admin-backends",
+                            "matchHostNames": ["admin.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/metrics",
+                        },
+                    ],
+                }
+            },
         },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
+    },
+
+    # ── Scenario B: api-service with 3 routes each to a distinct backend pool ─
+    # /static route → static-backends shared with web-service above (cross-VIP)
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "api-service", "namespace": "prod", "creationTimestamp": "2024-01-15T10:21:00Z"},
         "spec": {
             "vipRef": "api-vip",
             "applications": {
@@ -223,35 +306,62 @@ LBSERVICES = [
                     "tlsSecretRef": "api-tls",
                     "routes": [
                         {
-                            "backendRef": "api-backends",
+                            "backendRef": "api-v1-backends",
                             "matchHostNames": ["api.example.com"],
                             "matchPathType": "Prefix",
                             "matchPathValue": "/v1",
                         },
                         {
-                            "backendRef": "api-backends",
+                            # api-v2-backends also used by grpc-service (cross-VIP sharing)
+                            "backendRef": "api-v2-backends",
                             "matchHostNames": ["api.example.com"],
                             "matchPathType": "Prefix",
                             "matchPathValue": "/v2",
+                        },
+                        {
+                            # static-backends also used by web-service (cross-VIP sharing)
+                            "backendRef": "static-backends",
+                            "matchHostNames": ["api.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/static",
                         },
                     ],
                 }
             },
         },
-        "status": {
-            "conditions": [
-                {"type": "Ready", "status": "True", "reason": "ServiceReady"}
-            ]
-        },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
     },
+
+    # ── Scenario C: grpc-service uses grpc-vip, shares api-v2-backends with api-service ─
     {
         "apiVersion": "isovalent.com/v1",
         "kind": "IsovalentLBService",
-        "metadata": {
-            "name": "metrics-service",
-            "namespace": "staging",
-            "creationTimestamp": "2024-01-16T09:10:00Z",
+        "metadata": {"name": "grpc-service", "namespace": "prod", "creationTimestamp": "2024-01-17T08:10:00Z"},
+        "spec": {
+            "vipRef": "grpc-vip",
+            "applications": {
+                "tlsPassthrough": {
+                    "port": 443,
+                    "routes": [
+                        {
+                            # shared with api-service which is on api-vip (cross-VIP pool sharing)
+                            "backendRef": "api-v2-backends",
+                            "matchHostNames": ["grpc.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/",
+                        },
+                    ],
+                }
+            },
         },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
+    },
+
+    # ── Scenario D: metrics-service degraded ──────────────────────────────────
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "metrics-service", "namespace": "staging", "creationTimestamp": "2024-01-16T09:10:00Z"},
         "spec": {
             "vipRef": "metrics-vip",
             "applications": {
@@ -261,11 +371,100 @@ LBSERVICES = [
                 }
             },
         },
-        "status": {
-            "conditions": [
-                {"type": "Ready", "status": "False", "reason": "BackendUnavailable"}
-            ]
+        "status": {"conditions": [{"type": "Ready", "status": "False", "reason": "BackendUnavailable"}]},
+    },
+
+    # ── Scenario E: two services share internal-vip AND shared-backends ───────
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "worker-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:10:00Z"},
+        "spec": {
+            "vipRef": "internal-vip",
+            "applications": {
+                "httpProxy": {
+                    "port": 80,
+                    "routes": [
+                        {
+                            "backendRef": "shared-backends",
+                            "matchHostNames": ["internal.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/worker",
+                        },
+                    ],
+                }
+            },
         },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
+    },
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "monitor-service", "namespace": "staging", "creationTimestamp": "2024-01-18T08:20:00Z"},
+        "spec": {
+            "vipRef": "internal-vip",
+            "applications": {
+                "httpProxy": {
+                    "port": 8080,
+                    "routes": [
+                        {
+                            "backendRef": "shared-backends",
+                            "matchHostNames": ["internal.example.com"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/monitor",
+                        },
+                    ],
+                }
+            },
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
+    },
+
+    # ── Scenario F: cache-service on cache-vip (infra), TCP :6379 ────────────
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "cache-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:20:00Z"},
+        "spec": {
+            "vipRef": "cache-vip",
+            "applications": {
+                "tcpProxy": {
+                    "port": 6379,
+                    "backendRef": "redis-backends",
+                }
+            },
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
+    },
+
+    # ── Scenario G: proxy-service on proxy-vip (infra), HTTP with 2 routes, one backend degraded ─
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBService",
+        "metadata": {"name": "proxy-service", "namespace": "infra", "creationTimestamp": "2024-02-01T08:21:00Z"},
+        "spec": {
+            "vipRef": "proxy-vip",
+            "applications": {
+                "httpProxy": {
+                    "port": 80,
+                    "routes": [
+                        {
+                            "backendRef": "proxy-backends",
+                            "matchHostNames": ["proxy.infra.local"],
+                            "matchPathType": "Prefix",
+                            "matchPathValue": "/",
+                        },
+                        {
+                            "backendRef": "proxy-backends",
+                            "matchHostNames": ["proxy.infra.local"],
+                            "matchPathType": "Exact",
+                            "matchPathValue": "/healthz",
+                        },
+                    ],
+                }
+            },
+        },
+        "status": {"conditions": [{"type": "Ready", "status": "True", "reason": "ServiceReady"}]},
     },
 ]
 
@@ -301,6 +500,23 @@ LBDEPLOYMENTS = [
         },
         "status": {
             "readyReplicas": 1,
+            "conditions": [{"type": "Available", "status": "True"}],
+        },
+    },
+    {
+        "apiVersion": "isovalent.com/v1",
+        "kind": "IsovalentLBDeployment",
+        "metadata": {
+            "name": "ilb-infra",
+            "namespace": "infra",
+            "creationTimestamp": "2024-02-01T07:00:00Z",
+        },
+        "spec": {
+            "replicas": 2,
+            "nodeSelector": {"matchLabels": {"service.cilium.io/node": "t1"}},
+        },
+        "status": {
+            "readyReplicas": 2,
             "conditions": [{"type": "Available", "status": "True"}],
         },
     },
@@ -418,6 +634,8 @@ BFDPROFILES = [
 
 CILIUM_LB_STATUS = {
     "services": [
+        # ── Scenario A: two services on web-vip ───────────────────────────────
+        # web-service uses web-backends (3) + static-backends (2) = 5 endpoints
         {
             "name": "web-service",
             "namespace": "prod",
@@ -430,21 +648,27 @@ CILIUM_LB_STATUS = {
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
             "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
             "t2BackendHealthcheckStatus": {
-                "status": "OK",
-                "ok": 3,
-                "total": 3,
+                "status": "OK", "ok": 5, "total": 5,
                 "endpoints": [
+                    # web-backends (3)
                     {"endpoint": "192.168.1.10:8080", "status": "OK"},
                     {"endpoint": "192.168.1.11:8080", "status": "OK"},
                     {"endpoint": "192.168.1.12:8080", "status": "OK"},
+                    # static-backends (2)
+                    {"endpoint": "192.168.4.10:8081", "status": "OK"},
+                    {"endpoint": "192.168.4.11:8081", "status": "OK"},
                 ],
             },
-            "backendpoolStatus": {"status": "OK", "groups": [{"ok": 3, "total": 3, "status": "OK"}]},
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "web-backends",    "ok": 3, "total": 3, "status": "OK"},
+                {"name": "static-backends", "ok": 2, "total": 2, "status": "OK"},
+            ]},
         },
+        # admin-service uses admin-backends (2)
         {
-            "name": "api-service",
+            "name": "admin-service",
             "namespace": "prod",
-            "vip": "10.100.0.11",
+            "vip": "10.100.0.10",
             "port": 443,
             "type": "httpsProxy",
             "status": "ONLINE",
@@ -453,16 +677,73 @@ CILIUM_LB_STATUS = {
             "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
             "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
             "t2BackendHealthcheckStatus": {
-                "status": "OK",
-                "ok": 2,
-                "total": 2,
+                "status": "OK", "ok": 2, "total": 2,
                 "endpoints": [
-                    {"endpoint": "192.168.2.10:9090", "status": "OK"},
-                    {"endpoint": "192.168.2.11:9090", "status": "OK"},
+                    # admin-backends (2)
+                    {"endpoint": "192.168.1.20:8443", "status": "OK"},
+                    {"endpoint": "192.168.1.21:8443", "status": "OK"},
                 ],
             },
-            "backendpoolStatus": {"status": "OK", "groups": [{"ok": 2, "total": 2, "status": "OK"}]},
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "admin-backends", "ok": 2, "total": 2, "status": "OK"},
+            ]},
         },
+
+        # ── Scenario B: api-service with 3 routes on api-vip ─────────────────
+        # api-service uses api-v1-backends (2, one ERR) + api-v2-backends (3) + static-backends (2) = 7
+        {
+            "name": "api-service",
+            "namespace": "prod",
+            "vip": "10.100.0.11",
+            "port": 443,
+            "type": "httpsProxy",
+            "status": "DEGRADED",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
+            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2BackendHealthcheckStatus": {
+                "status": "DEG", "ok": 6, "total": 7,
+                "endpoints": [
+                    # api-v1-backends (2, one ERR)
+                    {"endpoint": "192.168.2.10:9090", "status": "OK"},
+                    {"endpoint": "192.168.2.11:9090", "status": "ERR"},
+                    # api-v2-backends (3, all OK)
+                    {"endpoint": "192.168.2.20:9091", "status": "OK"},
+                    {"endpoint": "192.168.2.21:9091", "status": "OK"},
+                    {"endpoint": "192.168.2.22:9091", "status": "OK"},
+                    # static-backends (2, all OK)
+                    {"endpoint": "192.168.4.10:8081", "status": "OK"},
+                    {"endpoint": "192.168.4.11:8081", "status": "OK"},
+                ],
+            },
+            "backendpoolStatus": {"status": "DEG", "groups": [
+                {"name": "api-v1-backends", "ok": 1, "total": 2, "status": "DEG"},
+                {"name": "api-v2-backends", "ok": 3, "total": 3, "status": "OK"},
+                {"name": "static-backends", "ok": 2, "total": 2, "status": "OK"},
+            ]},
+        },
+
+        # ── Scenario C: grpc-service on grpc-vip, shares api-v2-backends ─────
+        # tlsPassthrough: no L7 healthcheck, uses backendpoolStatus only
+        {
+            "name": "grpc-service",
+            "namespace": "prod",
+            "vip": "10.100.0.30",
+            "port": 443,
+            "type": "tlsPassthrough",
+            "status": "ONLINE",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 3, "total": 3},
+            "t2NodeStatus": {"status": "OK", "ok": 5, "total": 5},
+            "t2BackendHealthcheckStatus": None,
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "api-v2-backends", "ok": 3, "total": 3, "status": "OK"},
+            ]},
+        },
+
+        # ── Scenario D: metrics-service degraded ─────────────────────────────
         {
             "name": "metrics-service",
             "namespace": "staging",
@@ -475,7 +756,98 @@ CILIUM_LB_STATUS = {
             "t1NodeStatus": {"status": "DEG", "ok": 0, "total": 1},
             "t2NodeStatus": {"status": "OK", "ok": 1, "total": 1},
             "t2BackendHealthcheckStatus": None,
-            "backendpoolStatus": {"status": "DEG", "groups": [{"ok": 0, "total": 1, "status": "DEG"}]},
+            "backendpoolStatus": {"status": "DEG", "groups": [
+                {"name": "metrics-backends", "ok": 0, "total": 1, "status": "DEG"},
+            ]},
+        },
+
+        # ── Scenario E: two services share internal-vip AND shared-backends ──
+        {
+            "name": "worker-service",
+            "namespace": "staging",
+            "vip": "10.100.0.40",
+            "port": 80,
+            "type": "httpProxy",
+            "status": "ONLINE",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 1, "total": 1},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t2BackendHealthcheckStatus": {
+                "status": "OK", "ok": 2, "total": 2,
+                "endpoints": [
+                    {"endpoint": "192.168.5.10:7070", "status": "OK"},
+                    {"endpoint": "192.168.5.11:7070", "status": "OK"},
+                ],
+            },
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "shared-backends", "ok": 2, "total": 2, "status": "OK"},
+            ]},
+        },
+        {
+            "name": "monitor-service",
+            "namespace": "staging",
+            "vip": "10.100.0.40",
+            "port": 8080,
+            "type": "httpProxy",
+            "status": "ONLINE",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 1, "total": 1},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t2BackendHealthcheckStatus": {
+                "status": "OK", "ok": 2, "total": 2,
+                "endpoints": [
+                    {"endpoint": "192.168.5.10:7070", "status": "OK"},
+                    {"endpoint": "192.168.5.11:7070", "status": "OK"},
+                ],
+            },
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "shared-backends", "ok": 2, "total": 2, "status": "OK"},
+            ]},
+        },
+
+        # ── Scenario F: cache-service on cache-vip (infra) ────────────────────
+        # tcpProxy: no L7 healthcheck, uses backendpoolStatus only
+        {
+            "name": "cache-service",
+            "namespace": "infra",
+            "vip": "10.100.1.10",
+            "port": 6379,
+            "type": "tcpProxy",
+            "status": "ONLINE",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t2NodeStatus": {"status": "OK", "ok": 3, "total": 3},
+            "t2BackendHealthcheckStatus": None,
+            "backendpoolStatus": {"status": "OK", "groups": [
+                {"name": "redis-backends", "ok": 3, "total": 3, "status": "OK"},
+            ]},
+        },
+
+        # ── Scenario G: proxy-service on proxy-vip (infra), one backend degraded ─
+        {
+            "name": "proxy-service",
+            "namespace": "infra",
+            "vip": "10.100.1.11",
+            "port": 80,
+            "type": "httpProxy",
+            "status": "DEGRADED",
+            "bgpPeerStatus": {"status": "OK", "ok": 2, "total": 2},
+            "bgpRouteStatus": {"status": "OK"},
+            "t1NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t2NodeStatus": {"status": "OK", "ok": 2, "total": 2},
+            "t2BackendHealthcheckStatus": {
+                "status": "DEG", "ok": 1, "total": 2,
+                "endpoints": [
+                    {"endpoint": "192.168.6.20:3128", "status": "OK"},
+                    {"endpoint": "192.168.6.21:3128", "status": "ERR"},  # degraded
+                ],
+            },
+            "backendpoolStatus": {"status": "DEG", "groups": [
+                {"name": "proxy-backends", "ok": 1, "total": 2, "status": "DEG"},
+            ]},
         },
     ]
 }
@@ -697,6 +1069,16 @@ SECRETS = {
                 "name": "metrics-tls",
                 "namespace": "staging",
                 "creationTimestamp": "2024-01-16T09:00:00Z",
+            },
+            "type": "kubernetes.io/tls",
+        },
+    ],
+    "infra": [
+        {
+            "metadata": {
+                "name": "proxy-tls",
+                "namespace": "infra",
+                "creationTimestamp": "2024-02-01T08:00:00Z",
             },
             "type": "kubernetes.io/tls",
         },

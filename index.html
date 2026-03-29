@@ -28,6 +28,21 @@
     .nav-logo { font-weight: 700; letter-spacing: 1px; }
     .resource-count { font-size: 2.5rem; font-weight: 700; line-height: 1; }
     .resource-label { font-size: 0.85rem; opacity: 0.8; }
+    #cy-container { width: 100%; height: 100%; background: transparent; }
+    .cy-tooltip {
+      position: fixed;
+      background: rgba(30,30,30,0.92);
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      pointer-events: none;
+      z-index: 9999;
+      max-width: 280px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
   </style>
 </head>
 <body>
@@ -294,6 +309,7 @@
             @edit="openEditDialog"
             @delete="confirmDelete"
             @view="openDetailDialog"
+            @topology="item => openTopologyFor(item, 'lbservices')"
           ></resource-list-view>
         </div>
 
@@ -310,6 +326,7 @@
             @edit="openEditDialog"
             @delete="confirmDelete"
             @view="openDetailDialog"
+            @topology="item => openTopologyFor(item, 'lbvips')"
           ></resource-list-view>
         </div>
 
@@ -326,6 +343,7 @@
             @edit="openEditDialog"
             @delete="confirmDelete"
             @view="openDetailDialog"
+            @topology="item => openTopologyFor(item, 'lbbackendpools')"
           ></resource-list-view>
         </div>
 
@@ -693,6 +711,39 @@
                 </div>
               </template>
             </v-data-table>
+          </v-card>
+        </div>
+
+        <!-- TOPOLOGY -->
+        <div v-if="currentView === 'topology'" style="display:flex;flex-direction:column;height:calc(100vh - 64px - 32px);">
+          <div class="d-flex align-center mb-2" style="flex-shrink:0">
+            <v-icon class="mr-2" color="primary">mdi-sitemap</v-icon>
+            <span class="text-h6">Service Topology</span>
+            <template v-if="topoFocus">
+              <v-icon class="mx-2" size="16" color="medium-emphasis">mdi-chevron-right</v-icon>
+              <v-chip size="small" variant="flat" color="primary" closable @click:close="clearTopoFocus()">
+                <v-icon start size="14">{{ topoFocus.type === 'lbvips' ? 'mdi-ip-network' : topoFocus.type === 'lbservices' ? 'mdi-lan' : 'mdi-server-network' }}</v-icon>
+                {{ topoFocus.name }}
+              </v-chip>
+            </template>
+            <v-spacer></v-spacer>
+            <div class="d-flex align-center flex-wrap ga-1 mr-3">
+              <v-chip size="small" variant="tonal" color="green"   prepend-icon="mdi-ip-network">VIP</v-chip>
+              <v-chip size="small" variant="tonal" color="blue"    prepend-icon="mdi-lan">Service</v-chip>
+              <v-chip size="small" variant="tonal" color="purple"  prepend-icon="mdi-server-network">Backend Pool</v-chip>
+              <v-divider vertical class="mx-1" style="height:20px"></v-divider>
+              <v-chip size="small" variant="tonal" color="success" prepend-icon="mdi-check-circle">Healthy</v-chip>
+              <v-chip size="small" variant="tonal" color="warning" prepend-icon="mdi-alert">Degraded</v-chip>
+              <v-chip size="small" variant="tonal" color="error"   prepend-icon="mdi-close-circle">Unhealthy</v-chip>
+              <v-divider vertical class="mx-1" style="height:20px"></v-divider>
+              <span class="text-caption text-medium-emphasis">Dashed = degraded backend</span>
+            </div>
+            <v-btn v-if="topoFocus" :variant="topoShowAll ? 'tonal' : 'flat'" :color="topoShowAll ? 'primary' : 'default'" prepend-icon="mdi-eye-outline" size="small" class="mr-2" @click="topoShowAll = !topoShowAll; renderCytoscape()" title="Show all objects (dim unrelated)">{{ topoShowAll ? 'Showing all' : 'Focused only' }}</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-fit-to-screen" size="small" class="mr-2" @click="cyFit()">Fit</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-refresh" size="small" @click="loadTopology()" :loading="topoLoading">Refresh</v-btn>
+          </div>
+          <v-card rounded="lg" elevation="2" style="flex:1;min-height:0;overflow:hidden;">
+            <div id="cy-container" style="width:100%;height:100%;display:block;"></div>
           </v-card>
         </div>
 
@@ -2108,9 +2159,15 @@
 <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/vuetify@3.5.4/dist/vuetify.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.29.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
 <script>
-const { createApp, ref, reactive, computed, onMounted, watch } = Vue;
+const { createApp, ref, reactive, computed, onMounted, watch, nextTick } = Vue;
 const { createVuetify } = Vuetify;
+
+// Register cytoscape-dagre layout plugin
+if (typeof cytoscapeDagre !== 'undefined') cytoscape.use(cytoscapeDagre);
 
 const vuetify = createVuetify({
   theme: {
@@ -2148,7 +2205,7 @@ const ResourceListView = {
     loading: Boolean,
     columns: Array,
   },
-  emits: ['create', 'edit', 'delete', 'view'],
+  emits: ['create', 'edit', 'delete', 'view', 'topology'],
   template: `
   <div>
     <div class="d-flex align-center mb-3">
@@ -2195,6 +2252,7 @@ const ResourceListView = {
         <template v-slot:item.actions="{ item }">
           <template v-if="item">
           <v-btn icon size="small" variant="text" @click.stop="$emit('view', item)" title="View"><v-icon size="18">mdi-eye</v-icon></v-btn>
+          <v-btn icon size="small" variant="text" color="primary" @click.stop="$emit('topology', item)" title="Show in Topology"><v-icon size="18">mdi-sitemap</v-icon></v-btn>
           <v-btn icon size="small" variant="text" @click.stop="$emit('edit', item)" title="Edit"><v-icon size="18">mdi-pencil</v-icon></v-btn>
           <v-btn icon size="small" variant="text" color="error" @click.stop="$emit('delete', item)" title="Delete"><v-icon size="18">mdi-delete</v-icon></v-btn>
           </template>
@@ -2275,6 +2333,40 @@ const App = {
     const namespaces = ref([]);
 
     const currentView = ref('dashboard');
+
+    // ── Hash-based routing ────────────────────────────────────────────────
+    const VALID_VIEWS = new Set([
+      'dashboard','lbservices','lbvips','lbbackendpools','lbdeployments',
+      'lbippools','bgpwizard','lbstatus','bgpstatus','nodes','accesslogs',
+      'secrets','topology','reference',
+    ]);
+
+    function parseHash() {
+      const hash = window.location.hash.replace(/^#\/?/, '');
+      const [path, query] = hash.split('?');
+      const view = VALID_VIEWS.has(path) ? path : 'dashboard';
+      const params = new URLSearchParams(query || '');
+      const ns = params.get('ns') || '(all)';
+      return { view, ns };
+    }
+
+    function pushHash(view, ns) {
+      const nsParam = ns && ns !== '(all)' ? `?ns=${encodeURIComponent(ns)}` : '';
+      const hash = `#/${view}${nsParam}`;
+      if (window.location.hash !== hash) window.history.pushState(null, '', hash);
+    }
+
+    function applyRoute({ view, ns }) {
+      // Update state without triggering the watchers that would pushHash again
+      _routeApplying = true;
+      currentView.value = view;
+      selectedNamespace.value = ns;
+      _routeApplying = false;
+      refresh();
+      loadCurrentView();
+    }
+
+    let _routeApplying = false;
     const navItems = [
       { view: 'dashboard',        label: 'Dashboard',          icon: 'mdi-view-dashboard' },
       { view: 'lbservices',       label: 'LBServices',         icon: 'mdi-lan' },
@@ -2288,6 +2380,7 @@ const App = {
       { view: 'nodes',            label: 'Nodes',              icon: 'mdi-server' },
       { view: 'accesslogs',       label: 'Access Logs',        icon: 'mdi-text-box-search' },
       { view: 'secrets',          label: 'Secrets',            icon: 'mdi-lock' },
+      { view: 'topology',         label: 'Topology',           icon: 'mdi-sitemap' },
       { view: 'reference',        label: 'Reference',          icon: 'mdi-graph-outline' },
     ];
 
@@ -2471,6 +2564,7 @@ const App = {
     }
 
     function onNamespaceChange() {
+      if (!_routeApplying) pushHash(currentView.value, selectedNamespace.value);
       refresh();
       loadCurrentView();
     }
@@ -2483,10 +2577,12 @@ const App = {
       else if (view === 'bgpwizard') loadBgpWizard();
       else if (view === 'nodes') loadNodes();
       else if (view === 'secrets') loadSecrets();
+      else if (view === 'topology') nextTick(() => loadTopology());
     }
 
     function navigateTo(view) {
       currentView.value = view;
+      if (!_routeApplying) pushHash(view, selectedNamespace.value);
     }
 
     // ---- Detail dialog ----
@@ -3807,9 +3903,660 @@ const App = {
 
     // ── View-change watch (lazy load monitoring data) ─────────────────────
     watch(selectedNamespace, () => {
+      if (_routeApplying) return;
       refresh();
       loadCurrentView();
     });
+
+    // ── Topology / Cytoscape ─────────────────────────────────────────────
+    const topoLoading = ref(false);
+    const topoFocus = ref(null); // { type: 'lbservices'|'lbvips'|'lbbackendpools', name, namespace }
+    const topoShowAll = ref(false); // when focus active: false=hide dimmed, true=show dimmed grayed out
+    let _cy = null;
+    let _cyTooltip = null;
+    const _expandedPools = new Set(); // pool node IDs currently expanded
+
+    function openTopologyFor(item, resourceType) {
+      topoFocus.value = {
+        type: resourceType,
+        name: item.metadata.name,
+        namespace: item.metadata.namespace || '',
+      };
+      navigateTo('topology');
+    }
+
+    function clearTopoFocus() {
+      topoFocus.value = null;
+      topoShowAll.value = false;
+      renderCytoscape();
+    }
+
+    // colour palette — matches reference SVG
+    const TOPO_COLORS = {
+      vip:         { bg: '#E8F5E9', border: '#2E7D32', text: '#1B5E20' },
+      service:     { bg: '#E3F2FD', border: '#1565C0', text: '#0D47A1' },
+      backend:     { bg: '#F3E5F5', border: '#6A1B9A', text: '#4A148C' },
+      backendNode: { ok:  { bg: '#C8E6C9', border: '#2E7D32', text: '#1B5E20' },
+                     err: { bg: '#FFCDD2', border: '#C62828', text: '#B71C1C' },
+                     unk: { bg: '#ECEFF1', border: '#78909C', text: '#455A64' } },
+      // health overlays
+      ok:       { bg: '#E8F5E9', border: '#2E7D32' },
+      deg:      { bg: '#FFF8E1', border: '#F9A825' },
+      err:      { bg: '#FFEBEE', border: '#C62828' },
+    };
+
+    // Return health of a specific endpoint IP:port from lbStatusRaw
+    function _endpointHealth(ip, port) {
+      const needle = port ? `${ip}:${port}` : ip;
+      for (const svc of (lbStatusRaw.value?.services || [])) {
+        const eps = svc.t2BackendHealthcheckStatus?.endpoints || [];
+        for (const ep of eps) {
+          if (!ep) continue;
+          const addr = ep.endpoint || '';
+          // match "192.168.1.10:8080" or just IP prefix
+          if (addr === needle || addr.startsWith(ip + ':')) {
+            return ep.status === 'OK' ? 'ok' : 'err';
+          }
+        }
+      }
+      return 'unk';
+    }
+
+    // Build child backend node elements for a given pool node id
+    function _backendChildElements(poolId, bp) {
+      const ns    = bp.metadata.namespace || '';
+      const pname = bp.metadata.name;
+      const items = bp.spec?.backends || [];
+      const result = [];
+      for (let i = 0; i < items.length; i++) {
+        const b    = items[i];
+        const addr = b.ip || b.hostname || b.host || (b.k8sServiceRef?.name) || `backend-${i}`;
+        const port = b.port || '';
+        const health = _endpointHealth(b.ip || addr, port);
+        const c = TOPO_COLORS.backendNode[health];
+        const childId = `bnode:${ns}:${pname}:${i}`;
+        const label = port ? `${addr}:${port}` : addr;
+        // No parent — standalone node, will be positioned manually next to pool
+        result.push({ data: {
+          id: childId,
+          label,
+          type: 'backendNode',
+          health,
+          bgColor: c.bg, borderColor: c.border, textColor: c.text,
+          tooltip: `${addr}${port ? ':'+port : ''}\nHealth: ${health === 'ok' ? 'Healthy' : health === 'err' ? 'Unhealthy' : 'Unknown'}${b.weight ? `\nWeight: ${b.weight}` : ''}`,
+          dimmed: false,
+        }});
+        // Edge from pool to this backend node
+        result.push({ data: {
+          id: `e:pool:${poolId}->${childId}`,
+          source: poolId,
+          target: childId,
+          edgeType: 'pool-node',
+          dashed: health === 'err',
+        }});
+      }
+      return result;
+    }
+
+    function _healthFromConditions(item) {
+      const conds = item?.status?.conditions || [];
+      if (!conds.length) return 'unknown';
+      const ready = conds.find(c => c.type === 'Ready' || c.type === 'Available' || c.type === 'Allocated');
+      if (ready) return ready.status === 'True' ? 'ok' : ready.status === 'False' ? 'err' : 'deg';
+      return conds.every(c => c.status === 'True') ? 'ok' : 'deg';
+    }
+
+    function _backendPoolHealth(poolName, poolNs) {
+      const svcs = lbStatusRaw.value?.services || [];
+      for (const svc of svcs) {
+        const apps = resources.lbservices.find(
+          s => s.metadata.name === svc.name && s.metadata.namespace === (svc.namespace || poolNs)
+        );
+        if (!apps) continue;
+        const appSpec = apps.spec?.applications || {};
+        const refersPool = Object.values(appSpec).some(a =>
+          (a.routes || []).some(r => (r.backendRef?.name || r.backendRef) === poolName)
+          || (a.backendRef?.name || a.backendRef) === poolName
+        );
+        if (!refersPool) continue;
+
+        // 1. Named group — exact per-pool counts, preferred
+        const namedGroup = (svc.backendpoolStatus?.groups || []).find(g => g.name === poolName);
+        if (namedGroup) {
+          const o = namedGroup.ok ?? 0, t = namedGroup.total ?? 0;
+          const h = namedGroup.status === 'OK' || o === t ? 'ok' : o === 0 ? 'err' : 'deg';
+          return { health: h, label: `${o}/${t}` };
+        }
+
+        // 2. Filter endpoint list to this pool's IPs
+        const poolSpec = (resources.lbbackendpools || []).find(
+          b => b.metadata.name === poolName && (b.metadata.namespace || '') === poolNs
+        );
+        const poolIps = new Set((poolSpec?.spec?.backends || []).map(b => `${b.ip}:${b.port}`));
+        const endpoints = (svc.t2BackendHealthcheckStatus?.endpoints || [])
+          .filter(ep => poolIps.has(ep.endpoint));
+        if (endpoints.length > 0) {
+          const ok = endpoints.filter(ep => ep.status === 'OK').length;
+          const total = endpoints.length;
+          const h = ok === total ? 'ok' : ok === 0 ? 'err' : 'deg';
+          return { health: h, label: `${ok}/${total}` };
+        }
+
+        // 3. Single unnamed group (tcpProxy with no per-pool breakdown)
+        const groups = svc.backendpoolStatus?.groups || [];
+        if (groups.length === 1) {
+          const o = groups[0].ok ?? 0, t = groups[0].total ?? 0;
+          const h = groups[0].status === 'OK' || o === t ? 'ok' : o === 0 ? 'err' : 'deg';
+          return { health: h, label: `${o}/${t}` };
+        }
+      }
+      return { health: 'unknown', label: '' };
+    }
+
+    function buildGraphElements() {
+      const elements = [];
+      const showAllNs = !selectedNamespace.value || selectedNamespace.value === '(all)';
+      const vips     = resources.lbvips       || [];
+      const services = resources.lbservices   || [];
+      const backends = resources.lbbackendpools || [];
+
+      // VIP nodes
+      for (const v of vips) {
+        const ns   = v.metadata.namespace || '';
+        const name = v.metadata.name;
+        const id   = `vip:${ns}:${name}`;
+        const ip   = v.status?.ipv4 || v.status?.addresses?.ipv4
+                  || v.spec?.ipv4Request || '';
+        const health = _healthFromConditions(v);
+        const colors = TOPO_COLORS.vip;
+        const sublabel = ip ? (showAllNs ? `${ip} · ${ns}` : ip) : ns;
+        elements.push({ data: {
+          id, label: name, sublabel,
+          type: 'vip', health,
+          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          tooltip: `VIP: ${ns}/${name}\nIP: ${ip || '(pending)'}\nHealth: ${health}`,
+        }});
+      }
+
+      // Backend pool nodes
+      for (const bp of backends) {
+        const ns    = bp.metadata.namespace || '';
+        const name  = bp.metadata.name;
+        const id    = `backend:${ns}:${name}`;
+        const count = (bp.spec?.backends || []).length;
+        const { health, label: hLabel } = _backendPoolHealth(name, ns);
+        const colors = TOPO_COLORS.backend;
+        const expanded = _expandedPools.has(id);
+        const healthPart = hLabel || `${count} backend${count !== 1 ? 's' : ''}`;
+        const sublabel = (expanded ? '▼ ' : '▶ ') + healthPart + (showAllNs ? ` · ${ns}` : '');
+        elements.push({ data: {
+          id, label: name, sublabel,
+          type: 'backend', health, expandable: true, expanded,
+          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          tooltip: `BackendPool: ${ns}/${name}\nBackends: ${count}${hLabel ? `\nHealth: ${hLabel}` : ''}\n${expanded ? 'Click to collapse' : 'Click to expand'}`,
+        }});
+        // If expanded, add child backend nodes
+        if (expanded) {
+          for (const child of _backendChildElements(id, bp)) {
+            elements.push(child);
+          }
+        }
+      }
+
+      // Service nodes + edges
+      for (const svc of services) {
+        const ns   = svc.metadata.namespace || '';
+        const name = svc.metadata.name;
+        const id   = `svc:${ns}:${name}`;
+        const apps = svc.spec?.applications || {};
+        const appType = Object.keys(apps)[0] || 'unknown';
+        const health = _healthFromConditions(svc);
+
+        // runtime status
+        const rtSvc = (lbStatusRaw.value?.services || []).find(
+          s => s.name === name && (s.namespace === ns || !s.namespace)
+        );
+        const rtStatus = rtSvc?.status || '';
+        const rtHealth = rtStatus === 'ONLINE' ? 'ok'
+                       : rtStatus === 'DEGRADED' ? 'deg'
+                       : rtStatus ? 'err'
+                       : health;
+
+        const colors = TOPO_COLORS.service;
+        const svcSublabel = showAllNs ? `${appType} · ${ns}` : appType;
+        elements.push({ data: {
+          id, label: name, sublabel: svcSublabel,
+          type: 'service', health: rtHealth,
+          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          tooltip: `Service: ${ns}/${name}\nType: ${appType}${rtStatus ? `\nStatus: ${rtStatus}` : ''}`,
+        }});
+
+        // edge: VIP → Service
+        const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
+        if (vipRef) {
+          const vipId = `vip:${ns}:${vipRef}`;
+          const vipExists = vips.some(v => v.metadata.name === vipRef && v.metadata.namespace === ns);
+          if (vipExists) {
+            elements.push({ data: {
+              id: `e:vip:${vipId}->${id}`,
+              source: vipId, target: id,
+              label: '', edgeType: 'vip-svc',
+              dashed: false,
+            }});
+          }
+        }
+
+        // edges: Service → BackendPool (one per route)
+        for (const [, appObj] of Object.entries(apps)) {
+          // httpProxy / httpsProxy: routes array
+          const routes = appObj?.routes || [];
+          for (const route of routes) {
+            const bpName = route.backendRef?.name || route.backendRef || '';
+            if (!bpName) continue;
+            const bpId = `backend:${ns}:${bpName}`;
+            const bpExists = backends.some(b => b.metadata.name === bpName && b.metadata.namespace === ns);
+            if (!bpExists) continue;
+
+            // health of this specific backend
+            const { health: bpHealth } = _backendPoolHealth(bpName, ns);
+            const dashed = bpHealth === 'deg' || bpHealth === 'err';
+
+            // Route label
+            const hosts = (route.matchHostNames || []).join(', ');
+            const pathPart = route.matchPathValue ? `${route.matchPathType || ''} ${route.matchPathValue}`.trim() : '';
+            const edgeLabel = [hosts, pathPart].filter(Boolean).join('\n');
+
+            elements.push({ data: {
+              id: `e:svc:${id}->${bpId}:${bpName}`,
+              source: id, target: bpId,
+              label: edgeLabel,
+              edgeType: 'svc-backend',
+              dashed,
+              tooltip: edgeLabel ? `Route:\n${edgeLabel}` : '',
+            }});
+          }
+          // tcpProxy / udpProxy: direct backendRef
+          const directRef = appObj?.backendRef?.name || appObj?.backendRef || '';
+          if (directRef && routes.length === 0) {
+            const bpId = `backend:${ns}:${directRef}`;
+            const bpExists = backends.some(b => b.metadata.name === directRef && b.metadata.namespace === ns);
+            if (!bpExists) continue;
+            const { health: bpHealth } = _backendPoolHealth(directRef, ns);
+            const dashed = bpHealth === 'deg' || bpHealth === 'err';
+            elements.push({ data: {
+              id: `e:svc:${id}->${bpId}:direct`,
+              source: id, target: bpId,
+              label: appType,
+              edgeType: 'svc-backend',
+              dashed,
+              tooltip: `Type: ${appType}`,
+            }});
+          }
+        }
+      }
+
+      // ── Focus filtering ───────────────────────────────────────────────
+      // Walk the graph to find all node IDs reachable from/to the focused entity.
+      // A focused VIP → its services → their backends
+      // A focused service → its VIP + its backends
+      // A focused backend → the services that use it → those services' VIPs
+      const focus = topoFocus.value;
+      let focusedIds = null; // null = no filter (show all)
+
+      if (focus) {
+        focusedIds = new Set();
+        const { type, name, namespace: fns } = focus;
+
+        if (type === 'lbvips') {
+          const vipId = `vip:${fns}:${name}`;
+          focusedIds.add(vipId);
+          // all services referencing this vip
+          for (const e of elements) {
+            if (e.data.source === vipId) {
+              focusedIds.add(e.data.target); // service
+              // all backends of that service
+              for (const e2 of elements) {
+                if (e2.data.source === e.data.target && e2.data.edgeType === 'svc-backend') {
+                  focusedIds.add(e2.data.target);
+                }
+              }
+            }
+          }
+        } else if (type === 'lbservices') {
+          const svcId = `svc:${fns}:${name}`;
+          focusedIds.add(svcId);
+          for (const e of elements) {
+            if (e.data.target === svcId && e.data.edgeType === 'vip-svc') focusedIds.add(e.data.source); // vip
+            if (e.data.source === svcId && e.data.edgeType === 'svc-backend') focusedIds.add(e.data.target); // backend
+          }
+        } else if (type === 'lbbackendpools') {
+          const bpId = `backend:${fns}:${name}`;
+          focusedIds.add(bpId);
+          for (const e of elements) {
+            if (e.data.target === bpId && e.data.edgeType === 'svc-backend') {
+              focusedIds.add(e.data.source); // service
+              // that service's vip
+              for (const e2 of elements) {
+                if (e2.data.target === e.data.source && e2.data.edgeType === 'vip-svc') {
+                  focusedIds.add(e2.data.source);
+                }
+              }
+            }
+          }
+        }
+
+        // Also include backend child nodes connected to a focused pool via pool-node edges
+        for (const el of elements) {
+          if (el.data.edgeType === 'pool-node' && focusedIds.has(el.data.source)) {
+            focusedIds.add(el.data.target);
+          }
+        }
+
+        // Tag each element with focused/dimmed
+        for (const el of elements) {
+          if (el.data.source) {
+            el.data.dimmed = !(focusedIds.has(el.data.source) && focusedIds.has(el.data.target));
+          } else {
+            el.data.dimmed = !focusedIds.has(el.data.id);
+          }
+        }
+      }
+
+      return elements;
+    }
+
+    function _nodeColorForHealth(health, base) {
+      if (health === 'ok')  return { bg: base.bg,    border: base.border };
+      if (health === 'deg') return { bg: '#FFF8E1',  border: '#F9A825' };
+      if (health === 'err') return { bg: '#FFEBEE',  border: '#C62828' };
+      return { bg: '#F5F5F5', border: '#9E9E9E' };
+    }
+
+    async function loadTopology() {
+      topoLoading.value = true;
+      try {
+        // Always reload topology resources so namespace filter is respected
+        await Promise.all([
+          loadResource('lbservices'),
+          loadResource('lbvips'),
+          loadResource('lbbackendpools'),
+          loadLBStatus(),
+        ]);
+        // Wait two ticks to ensure Vue has rendered #cy-container
+        await nextTick();
+        await nextTick();
+        renderCytoscape();
+      } catch(e) {
+        console.error('[topology] loadTopology error:', e);
+      } finally {
+        topoLoading.value = false;
+      }
+    }
+
+    function renderCytoscape() {
+      const container = document.getElementById('cy-container');
+      if (!container) {
+        console.warn('[topology] #cy-container not found in DOM');
+        return;
+      }
+
+      if (_cy) { _cy.destroy(); _cy = null; }
+      if (_cyTooltip) { _cyTooltip.remove(); _cyTooltip = null; }
+
+      let elements = buildGraphElements();
+      // When focused and not showing all: remove dimmed elements entirely
+      if (topoFocus.value && !topoShowAll.value) {
+        elements = elements.filter(el => !el.data.dimmed);
+      }
+      if (!elements.length) {
+        console.warn('[topology] no elements to render');
+        return;
+      }
+
+      // Determine dark mode
+      const isDark = theme.value === 'dark';
+      const labelColor = isDark ? '#e0e0e0' : '#212121';
+      const edgeColor  = isDark ? '#90A4AE' : '#546E7A';
+      container.style.background = isDark ? '#1e1e1e' : '#f5f5f5';
+
+      _cy = cytoscape({
+        container,
+        elements,
+        style: [
+          {
+            selector: 'node',
+            style: {
+              'shape': 'roundrectangle',
+              'width': 160,
+              'height': 60,
+              'background-color': 'data(bgColor)',
+              'border-color': 'data(borderColor)',
+              'border-width': 2,
+              'label': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'font-size': 13,
+              'font-weight': 'bold',
+              'color': 'data(textColor)',
+              'text-wrap': 'wrap',
+              'text-max-width': 140,
+            }
+          },
+          {
+            // sublabel via ghost node trick — actually we use compound labels
+            selector: 'node[sublabel]',
+            style: {
+              'label': function(ele) {
+                return ele.data('label') + '\n' + ele.data('sublabel');
+              },
+              'font-size': 12,
+              'text-wrap': 'wrap',
+              'line-height': 1.4,
+            }
+          },
+          {
+            selector: 'node[health="deg"]',
+            style: {
+              'background-color': '#FFF8E1',
+              'border-color': '#F9A825',
+              'border-width': 2.5,
+              'color': '#E65100',
+            }
+          },
+          {
+            selector: 'node[health="err"]',
+            style: {
+              'background-color': '#FFEBEE',
+              'border-color': '#C62828',
+              'border-width': 2.5,
+              'color': '#B71C1C',
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'width': 1.5,
+              'line-color': edgeColor,
+              'target-arrow-color': edgeColor,
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'label': 'data(label)',
+              'font-size': 10,
+              'color': isDark ? '#B0BEC5' : '#455A64',
+              'text-background-color': isDark ? '#263238' : '#ffffff',
+              'text-background-opacity': 0.85,
+              'text-background-padding': '2px',
+              'text-wrap': 'wrap',
+              'text-max-width': 120,
+              'edge-text-rotation': 'autorotate',
+            }
+          },
+          {
+            selector: 'edge[?dashed]',
+            style: {
+              'line-style': 'dashed',
+              'line-dash-pattern': [6, 3],
+              'line-color': '#FF8F00',
+              'target-arrow-color': '#FF8F00',
+            }
+          },
+          {
+            selector: 'edge[edgeType="vip-svc"]',
+            style: {
+              'line-color': '#2E7D32',
+              'target-arrow-color': '#2E7D32',
+              'width': 2,
+            }
+          },
+          {
+            // Individual backend endpoint nodes
+            selector: 'node[type="backendNode"]',
+            style: {
+              'shape': 'ellipse',
+              'width': 130,
+              'height': 34,
+              'background-color': 'data(bgColor)',
+              'border-color': 'data(borderColor)',
+              'border-width': 2,
+              'label': 'data(label)',
+              'text-valign': 'center',
+              'text-halign': 'center',
+              'font-size': 10,
+              'font-weight': 'normal',
+              'color': 'data(textColor)',
+              'text-wrap': 'wrap',
+              'text-max-width': 120,
+            }
+          },
+          {
+            selector: 'edge[edgeType="pool-node"]',
+            style: {
+              'line-color': '#9C27B0',
+              'target-arrow-color': '#9C27B0',
+              'width': 1.5,
+            }
+          },
+          {
+            selector: 'edge[edgeType="pool-node"][dashed]',
+            style: { 'line-style': 'dashed' }
+          },
+          {
+            selector: 'node:selected',
+            style: {
+              'border-width': 3,
+              'border-color': '#1B5E20',
+              'overlay-color': '#1B5E20',
+              'overlay-opacity': 0.08,
+            }
+          },
+          {
+            selector: 'node[?dimmed]',
+            style: {
+              'opacity': 0.2,
+            }
+          },
+          {
+            selector: 'edge[?dimmed]',
+            style: {
+              'opacity': 0.1,
+            }
+          },
+        ],
+        layout: {
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 40,
+          rankSep: 100,
+          padding: 30,
+          animate: false,
+        },
+      });
+
+      // Tooltip
+      _cyTooltip = document.createElement('div');
+      _cyTooltip.className = 'cy-tooltip';
+      _cyTooltip.style.display = 'none';
+      document.body.appendChild(_cyTooltip);
+
+      _cy.on('mouseover', 'node, edge', function(evt) {
+        const tip = evt.target.data('tooltip');
+        if (!tip) return;
+        _cyTooltip.textContent = tip;
+        _cyTooltip.style.display = 'block';
+      });
+      _cy.on('mousemove', function(evt) {
+        _cyTooltip.style.left = (evt.originalEvent.clientX + 14) + 'px';
+        _cyTooltip.style.top  = (evt.originalEvent.clientY + 14) + 'px';
+      });
+      _cy.on('mouseout', 'node, edge', function() {
+        _cyTooltip.style.display = 'none';
+      });
+
+      // Expand / collapse backend pool nodes on click
+      _cy.on('tap', 'node[type="backend"]', function(evt) {
+        const node = evt.target;
+        const poolId = node.id();
+        const ns   = poolId.split(':')[1];
+        const name = poolId.split(':').slice(2).join(':');
+        const bp   = (resources.lbbackendpools || []).find(
+          b => b.metadata.name === name && (b.metadata.namespace || '') === ns
+        );
+        if (!bp) return;
+
+        if (_expandedPools.has(poolId)) {
+          // Collapse: remove child nodes and their edges
+          _expandedPools.delete(poolId);
+          const childPrefix = `bnode:${poolId.split(':')[1]}:${poolId.split(':').slice(2).join(':')}:`;
+          _cy.remove(_cy.elements().filter(el => {
+            const id = el.id();
+            return id.startsWith(childPrefix) || id.startsWith(`e:pool:${poolId}->`);
+          }));
+          node.data('expanded', false);
+          node.data('sublabel', '▶ ' + _getPoolSublabel(bp, poolId));
+          node.data('tooltip', node.data('tooltip').replace('Click to collapse', 'Click to expand'));
+        } else {
+          // Expand: add child nodes positioned to the right of the pool, no layout re-run
+          _expandedPools.add(poolId);
+          node.data('expanded', true);
+          node.data('sublabel', '▼ ' + _getPoolSublabel(bp, poolId));
+          node.data('tooltip', node.data('tooltip').replace('Click to expand', 'Click to collapse'));
+          const elements = _backendChildElements(poolId, bp);
+          const parentDimmed = !!node.data('dimmed');
+          elements.forEach(el => { el.data.dimmed = parentDimmed; });
+          _cy.add(elements);
+          // Position child nodes in a vertical column to the right of the pool node
+          const parentPos = node.position();
+          const nodeWidth = node.outerWidth() || 120;
+          const spacing = 40;
+          const childNodes = _cy.nodes().filter(n => {
+            const id = n.id();
+            const prefix = `bnode:${poolId.split(':')[1]}:${poolId.split(':').slice(2).join(':')}:`;
+            return id.startsWith(prefix);
+          });
+          const totalH = (childNodes.length - 1) * spacing;
+          childNodes.forEach((child, i) => {
+            child.position({
+              x: parentPos.x + nodeWidth / 2 + 80,
+              y: parentPos.y - totalH / 2 + i * spacing,
+            });
+          });
+          _cy.fit(undefined, 30);
+        }
+        // No dagre re-run — pool node stays in place
+      });
+    }
+
+    function _getPoolSublabel(bp, poolId) {
+      const ns   = bp.metadata.namespace || '';
+      const name = bp.metadata.name;
+      const count = (bp.spec?.backends || []).length;
+      const { label: hLabel } = _backendPoolHealth(name, ns);
+      return hLabel || `${count} backend${count !== 1 ? 's' : ''}`;
+    }
+
+    function cyFit() {
+      if (_cy) _cy.fit(undefined, 30);
+    }
 
     watch(currentView, (view) => {
       // Clear access log timer on view leave
@@ -3817,6 +4564,10 @@ const App = {
         clearInterval(accessLogTimer);
         accessLogTimer = null;
         accessLogAutoRefresh.value = false;
+      }
+      if (_routeApplying) return;
+      if (view === 'topology') {
+        nextTick(() => loadTopology());
       }
       loadCurrentView();
     });
@@ -3872,7 +4623,24 @@ const App = {
     }
 
     onMounted(async () => {
+      // Apply initial route from URL before loading data
+      const initial = parseHash();
+      _routeApplying = true;
+      currentView.value = initial.view;
+      selectedNamespace.value = initial.ns;
+      _routeApplying = false;
+      // If no hash present, write the default so the URL is always canonical
+      if (!window.location.hash || window.location.hash === '#') {
+        window.history.replaceState(null, '', `#/${initial.view}`);
+      }
+
+      // Handle browser back/forward
+      window.addEventListener('popstate', () => {
+        applyRoute(parseHash());
+      });
+
       await Promise.all([loadNamespaces(), refresh()]);
+      loadCurrentView();
     });
 
     return {
@@ -3912,6 +4680,8 @@ const App = {
       saveBasicAuthSecret, saveTLSSecret, confirmDeleteSecret,
       // Namespace create
       createNsDialog, createNamespace,
+      // Topology
+      topoLoading, topoFocus, topoShowAll, loadTopology, cyFit, renderCytoscape, openTopologyFor, clearTopoFocus,
     };
   }
 };
