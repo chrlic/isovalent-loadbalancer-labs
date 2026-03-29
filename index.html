@@ -70,6 +70,12 @@
       background: rgba(var(--v-theme-primary), 0.08);
       outline: 1px solid rgba(var(--v-theme-primary), 0.3);
     }
+    .dgrid-cell-degraded {
+      background: rgba(var(--v-theme-error), 0.06);
+    }
+    .dgrid-cell-degraded.dgrid-cell-highlighted {
+      background: rgba(var(--v-theme-error), 0.12);
+    }
     .dgrid-row-highlighted .dgrid-node-label {
       background: rgba(var(--v-theme-primary), 0.1);
     }
@@ -749,6 +755,14 @@
                       <v-icon size="14" color="orange">mdi-cloud-upload</v-icon>
                       <span class="text-caption font-weight-bold">{{ col.depName || 'default' }}</span>
                       <v-chip v-if="col.namespace" size="x-small" variant="tonal" :color="clusterTopoNsColor(col.namespace)" class="ml-1">{{ col.namespace }}</v-chip>
+                      <v-icon
+                        v-if="deploymentGrid.cellContent[col.key]?.health === 'degraded'"
+                        size="12" color="error" class="ml-1" title="One or more entities degraded"
+                      >mdi-alert-circle</v-icon>
+                      <v-icon
+                        v-else-if="deploymentGrid.cellContent[col.key]?.health === 'ok'"
+                        size="12" color="success" class="ml-1"
+                      >mdi-check-circle</v-icon>
                     </div>
                   </th>
                 </tr>
@@ -790,7 +804,8 @@
                       class="dgrid-cell"
                       :class="{
                         'dgrid-cell-active': nodeRow.activeDeployments.has(col.key),
-                        'dgrid-cell-highlighted': deploymentGridHighlight === col.key && nodeRow.activeDeployments.has(col.key)
+                        'dgrid-cell-highlighted': deploymentGridHighlight === col.key && nodeRow.activeDeployments.has(col.key),
+                        'dgrid-cell-degraded': nodeRow.activeDeployments.has(col.key) && deploymentGrid.cellContent[col.key]?.health === 'degraded',
                       }"
                     >
                       <template v-if="nodeRow.activeDeployments.has(col.key)">
@@ -802,10 +817,10 @@
                               :key="'v-'+vip"
                               size="x-small"
                               variant="tonal"
-                              color="green"
+                              :color="deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'ok' ? 'green' : 'grey'"
                               prepend-icon="mdi-ip-network"
                               style="cursor:pointer"
-                              @click="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                              @click.stop="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
                             >{{ vip }}</v-chip>
                           </template>
                           <!-- Services for this deployment -->
@@ -814,10 +829,10 @@
                             :key="'s-'+svc"
                             size="x-small"
                             variant="tonal"
-                            color="indigo"
+                            :color="deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'ok' ? 'indigo' : 'grey'"
                             prepend-icon="mdi-lan"
                             style="cursor:pointer"
-                            @click="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                            @click.stop="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
                           >{{ svc }}</v-chip>
                         </div>
                       </template>
@@ -4034,12 +4049,28 @@ const App = {
     // ── Deployment × Node grid ────────────────────────────────────────────
     const deploymentGridHighlight = ref(null);
 
+    // Returns 'ok', 'degraded', or 'unknown' for any resource with .status.conditions
+    function _entityHealth(item) {
+      if (!item) return 'unknown';
+      const conds = item.status?.conditions;
+      if (!conds?.length) return 'unknown';
+      const ready = conds.find(c => c.type === 'Ready' || c.type === 'Available' || c.type === 'Allocated');
+      if (ready) return ready.status === 'True' ? 'ok' : 'degraded';
+      return conds.every(c => c.status === 'True') ? 'ok' : 'degraded';
+    }
+
     const deploymentGrid = computed(() => {
       const deps     = clusterTopoData.deployments;
       const allVips  = clusterTopoData.vips;
       const allSvcs  = clusterTopoData.services;
       const nodes    = ciliumNodes.value;
       const T2_APP_TYPES = new Set(['httpProxy', 'httpsProxy', 'tlsPassthrough', 'tlsProxy']);
+
+      // Build health lookup maps: "namespace/name" → 'ok'|'degraded'|'unknown'
+      const vipHealthMap = {};
+      for (const v of allVips)  vipHealthMap[`${v.metadata?.namespace}/${v.metadata?.name}`] = _entityHealth(v);
+      const svcHealthMap = {};
+      for (const s of allSvcs)  svcHealthMap[`${s.metadata?.namespace}/${s.metadata?.name}`] = _entityHealth(s);
 
       // ── Build columns: one per deployment + "default" ─────────────────
       // Colors for deployment columns (cycle through)
@@ -4056,7 +4087,28 @@ const App = {
 
       // ── Determine which services/VIPs each deployment covers ─────────
       const coveredSvcs = new Set();
-      const cellContent = {}; // key → { vips, services, t2services }
+      const cellContent = {}; // key → { vips, services, t2services, vipHealth, svcHealth, health, namespace }
+
+      function buildCellContent(ns, matchedSvcs) {
+        const vipSet = new Set();
+        for (const svc of matchedSvcs) {
+          if (svc.spec?.vipRef) vipSet.add(svc.spec.vipRef);
+        }
+        const vips = [...vipSet];
+        const services = matchedSvcs.map(s => s.metadata?.name);
+        const t2services = matchedSvcs
+          .filter(s => Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k)))
+          .map(s => s.metadata?.name);
+        const vipHealth = {};
+        for (const v of vips) vipHealth[v] = vipHealthMap[`${ns}/${v}`] || 'unknown';
+        const svcHealth = {};
+        for (const s of services) svcHealth[s] = svcHealthMap[`${ns}/${s}`] || 'unknown';
+        // Aggregate: any degraded → 'degraded'; all ok → 'ok'; else 'unknown'
+        const all = [...Object.values(vipHealth), ...Object.values(svcHealth)];
+        const health = all.includes('degraded') ? 'degraded' : all.every(h => h === 'ok') ? 'ok' : 'unknown';
+        return { vips, services, t2services, vipHealth, svcHealth, health, namespace: ns };
+      }
+
       for (const col of columns) {
         if (!col.dep) continue;
         const ns = col.namespace;
@@ -4066,31 +4118,11 @@ const App = {
           _matchesSelector(s.metadata?.labels || {}, sel)
         );
         matchedSvcs.forEach(s => coveredSvcs.add(`${ns}/${s.metadata?.name}`));
-        const vipSet = new Set();
-        for (const svc of matchedSvcs) {
-          if (svc.spec?.vipRef) vipSet.add(svc.spec.vipRef);
-        }
-        const t2svcs = matchedSvcs
-          .filter(s => Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k)))
-          .map(s => s.metadata?.name);
-        cellContent[col.key] = {
-          vips: [...vipSet],
-          services: matchedSvcs.map(s => s.metadata?.name),
-          t2services: t2svcs,
-        };
+        cellContent[col.key] = buildCellContent(ns, matchedSvcs);
       }
       // default column: services/VIPs not covered by any deployment
       const defSvcs = allSvcs.filter(s => !coveredSvcs.has(`${s.metadata?.namespace || ''}/${s.metadata?.name}`));
-      const defVipSet = new Set();
-      for (const svc of defSvcs) { if (svc.spec?.vipRef) defVipSet.add(svc.spec.vipRef); }
-      const defT2Svcs = defSvcs
-        .filter(s => Object.keys(s.spec?.applications || {}).some(k => T2_APP_TYPES.has(k)))
-        .map(s => s.metadata?.name);
-      cellContent['__default'] = {
-        vips: [...defVipSet],
-        services: defSvcs.map(s => s.metadata?.name),
-        t2services: defT2Svcs,
-      };
+      cellContent['__default'] = buildCellContent('', defSvcs);
 
       // ── Build node–deployment affinity ────────────────────────────────
       // Returns true if node matches any of the deployment's node labelSelectors
