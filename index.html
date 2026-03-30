@@ -703,21 +703,11 @@
             <v-icon class="mr-2" color="primary">mdi-graph</v-icon>
             <span class="text-h6">Deployments Topology</span>
             <v-spacer></v-spacer>
-            <v-btn-toggle v-model="clusterTopoView" mandatory density="compact" variant="outlined" class="mr-3">
-              <v-btn value="cards" size="small" prepend-icon="mdi-table">Grid</v-btn>
-              <v-btn value="graph" size="small" prepend-icon="mdi-graph">Graph</v-btn>
-            </v-btn-toggle>
-            <v-btn v-if="clusterTopoView === 'graph'" variant="tonal" prepend-icon="mdi-fit-to-screen" size="small" class="mr-2" @click="cyClusterFit()">Fit</v-btn>
             <v-btn variant="tonal" prepend-icon="mdi-refresh" size="small" @click="loadClusterTopology" :loading="clusterTopoLoading">Refresh</v-btn>
           </div>
 
-          <!-- Graph view -->
-          <v-card v-if="clusterTopoView === 'graph'" rounded="lg" elevation="2" style="flex:1;min-height:0;overflow:hidden;">
-            <div id="cy-cluster-container" style="width:100%;height:100%;display:block;"></div>
-          </v-card>
-
           <!-- Grid view wrapper -->
-          <div v-if="clusterTopoView === 'cards'" style="flex:1;overflow:auto;">
+          <div style="flex:1;overflow:auto;">
 
           <!-- Legend -->
           <div class="d-flex align-center flex-wrap ga-2 mb-3 mt-1" style="flex-shrink:0">
@@ -748,7 +738,7 @@
                     v-for="col in deploymentGrid.columns"
                     :key="col.key"
                     class="dgrid-dep-header"
-                    :class="{ 'dgrid-highlighted': deploymentGridHighlight === col.key }"
+                    :class="{ 'dgrid-highlighted': deploymentGridHighlight?.colKey === col.key }"
                     :style="'border-top: 3px solid ' + col.color + ';'"
                   >
                     <div class="d-flex align-center justify-center flex-wrap ga-1 pa-1">
@@ -787,7 +777,7 @@
                   <tr
                     v-for="nodeRow in tierGroup.nodes"
                     :key="nodeRow.nodeName"
-                    :class="{ 'dgrid-row-highlighted': deploymentGridHighlight && nodeRow.activeDeployments.has(deploymentGridHighlight) }"
+                    :class="{ 'dgrid-row-highlighted': deploymentGridHighlight && nodeRow.activeDeployments.has(deploymentGridHighlight.colKey) && (tierGroup.tier !== 't2' || deploymentGridHighlight.isT2) }"
                   >
                     <!-- Node label (sticky left) -->
                     <td class="dgrid-node-label" style="position:sticky;left:0;z-index:1;">
@@ -804,7 +794,7 @@
                       class="dgrid-cell"
                       :class="{
                         'dgrid-cell-active': nodeRow.activeDeployments.has(col.key),
-                        'dgrid-cell-highlighted': deploymentGridHighlight === col.key && nodeRow.activeDeployments.has(col.key),
+                        'dgrid-cell-highlighted': deploymentGridHighlight?.colKey === col.key && nodeRow.activeDeployments.has(col.key) && (tierGroup.tier !== 't2' || deploymentGridHighlight.isT2),
                         'dgrid-cell-degraded': nodeRow.activeDeployments.has(col.key) && deploymentGrid.cellContent[col.key]?.health === 'degraded',
                       }"
                     >
@@ -817,10 +807,10 @@
                               :key="'v-'+vip"
                               size="x-small"
                               variant="tonal"
-                              :color="deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'ok' ? 'green' : 'grey'"
+                              :color="deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.vipHealth?.[vip] === 'ok' ? 'green' : 'teal'"
                               prepend-icon="mdi-ip-network"
                               style="cursor:pointer"
-                              @click.stop="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                              @click.stop="deploymentGridHighlight = (deploymentGridHighlight?.colKey === col.key && deploymentGridHighlight?.svcName === vip) ? null : {colKey: col.key, svcName: vip, isT2: false}"
                             >{{ vip }}</v-chip>
                           </template>
                           <!-- Services for this deployment -->
@@ -829,10 +819,10 @@
                             :key="'s-'+svc"
                             size="x-small"
                             variant="tonal"
-                            :color="deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'ok' ? 'indigo' : 'grey'"
+                            :color="deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'degraded' ? 'error' : deploymentGrid.cellContent[col.key]?.svcHealth?.[svc] === 'ok' ? 'indigo' : 'blue'"
                             prepend-icon="mdi-lan"
                             style="cursor:pointer"
-                            @click.stop="deploymentGridHighlight = deploymentGridHighlight === col.key ? null : col.key"
+                            @click.stop="deploymentGridHighlight = (deploymentGridHighlight?.colKey === col.key && deploymentGridHighlight?.svcName === svc) ? null : {colKey: col.key, svcName: svc, isT2: deploymentGrid.cellContent[col.key]?.t2services?.includes(svc) ?? false}"
                           >{{ svc }}</v-chip>
                         </div>
                       </template>
@@ -2837,6 +2827,7 @@ const App = {
         // Find all LBServices that reference this pool
         const allSvcs = resources.lbservices || [];
         const referencingServices = allSvcs.filter(svc => {
+          if ((svc.metadata.namespace || '') !== ns) return false;
           const apps = svc.spec?.applications || {};
           return Object.values(apps).some(app =>
             (app.routes || []).some(r => r.backendRef?.name === poolName)
@@ -3919,7 +3910,7 @@ const App = {
       const m = {};
       for (const svc of services) {
         if ((svc.metadata?.namespace || '') !== ns) continue;
-        const vipRef = svc.spec?.vipRef;
+        const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
         if (vipRef) {
           if (!m[vipRef]) m[vipRef] = [];
           m[vipRef].push(svc.metadata?.name);
@@ -3956,7 +3947,7 @@ const App = {
         // Derive VIPs from matched services via vipRef
         const vipSvcMap = {};
         for (const svc of matchedSvcs) {
-          const vipRef = svc.spec?.vipRef;
+          const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
           if (vipRef) {
             if (!vipSvcMap[vipRef]) vipSvcMap[vipRef] = [];
             vipSvcMap[vipRef].push(svc.metadata?.name);
@@ -3971,7 +3962,7 @@ const App = {
         );
         const t2VipSvcMap = {};
         for (const svc of t2Svcs) {
-          const vipRef = svc.spec?.vipRef;
+          const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
           if (vipRef) {
             if (!t2VipSvcMap[vipRef]) t2VipSvcMap[vipRef] = [];
             t2VipSvcMap[vipRef].push(svc.metadata?.name);
@@ -4004,7 +3995,7 @@ const App = {
       for (const s of fallbackSvcs) {
         const ns = s.metadata?.namespace || '(none)';
         if (!fallbackNsMap[ns]) fallbackNsMap[ns] = { vipSvcMap: {}, svcNames: [] };
-        const vipRef = s.spec?.vipRef;
+        const vipRef = s.spec?.vipRef?.name || s.spec?.vipRef || '';
         if (vipRef && fallbackNsMap[ns].vipSvcMap[vipRef] !== undefined) {
           fallbackNsMap[ns].vipSvcMap[vipRef].push(s.metadata?.name);
         } else {
@@ -4028,7 +4019,7 @@ const App = {
         });
         const t2FbVipSvcMap = {};
         for (const svc of t2FallbackSvcs) {
-          const vipRef = svc.spec?.vipRef;
+          const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
           if (vipRef) {
             if (!t2FbVipSvcMap[vipRef]) t2FbVipSvcMap[vipRef] = [];
             t2FbVipSvcMap[vipRef].push(svc.metadata?.name);
@@ -4047,7 +4038,7 @@ const App = {
     });
 
     // ── Deployment × Node grid ────────────────────────────────────────────
-    const deploymentGridHighlight = ref(null);
+    const deploymentGridHighlight = ref(null); // {colKey, svcName, isT2} | null
 
     // Returns 'ok', 'degraded', or 'unknown' for any resource with .status.conditions
     function _entityHealth(item) {
@@ -4087,13 +4078,19 @@ const App = {
 
       // ── Determine which services/VIPs each deployment covers ─────────
       const coveredSvcs = new Set();
+      const coveredVips = new Set();
       const cellContent = {}; // key → { vips, services, t2services, vipHealth, svcHealth, health, namespace }
 
       function buildCellContent(ns, matchedSvcs) {
         const vipSet = new Set();
         for (const svc of matchedSvcs) {
-          if (svc.spec?.vipRef) vipSet.add(svc.spec.vipRef);
+          const ref = svc.spec?.vipRef;
+          const vipName = typeof ref === 'string' ? ref : ref?.name;
+          const svcNs = svc.metadata?.namespace || ns;
+          const vipKey = `${svcNs}/${vipName}`;
+          if (vipName && !coveredVips.has(vipKey)) vipSet.add(vipName);
         }
+        vipSet.forEach(v => coveredVips.add(`${ns}/${v}`));
         const vips = [...vipSet];
         const services = matchedSvcs.map(s => s.metadata?.name);
         const t2services = matchedSvcs
@@ -4228,7 +4225,7 @@ const App = {
       const svcYUsed = new Set();
       for (const svc of allSvcs) {
         const ns = svc.metadata?.namespace || '', nm = svc.metadata?.name || '';
-        const vipRef = svc.spec?.vipRef;
+        const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
         let y = vipRef ? (vipPos[`${ns}/${vipRef}`]?.y ?? 0) : 0;
         while (svcYUsed.has(y)) y += NODE_H + GAP_Y;
         svcYUsed.add(y);
@@ -4302,7 +4299,7 @@ const App = {
         const appTypes = Object.keys(svc.spec?.applications || {});
         const isT2 = appTypes.some(k => T2_TYPES.has(k));
         const appType = appTypes[0] || '';
-        const vipRef = svc.spec?.vipRef || '';
+        const vipRef = svc.spec?.vipRef?.name || svc.spec?.vipRef || '';
         elements.push({
           data: { id: `svc-${ns}-${nm}`, label: nm, namespace: ns, appType, isT2 },
           position: svcPos[`${ns}/${nm}`],
@@ -4522,10 +4519,6 @@ const App = {
         clusterTopoData.vips = Array.isArray(vips) ? vips : (vips?.items || []);
         clusterTopoData.services = Array.isArray(svcs) ? svcs : (svcs?.items || []);
         ciliumNodes.value = Array.isArray(nodes) ? nodes : (nodes?.items || []);
-        if (clusterTopoView.value === 'graph') {
-          await nextTick();
-          renderClusterTopo();
-        }
       } catch (e) {
         notify(`Failed to load cluster topology: ${e.message}`, 'error');
       } finally {
@@ -4932,17 +4925,19 @@ const App = {
     function _backendPoolHealth(poolName, poolNs) {
       const statusSvcs = _lbStatusServices();
       // Find LBService specs that reference this pool
-      const referencingNames = new Set(
+      // Use "ns/name" keys to be namespace-safe
+      const referencingKeys = new Set(
         (resources.lbservices || [])
-          .filter(s => Object.values(s.spec?.applications || {}).some(a =>
-            (a.routes || []).some(r => r.backendRef?.name === poolName)
-          ))
-          .map(s => s.metadata.name)
+          .filter(s => (s.metadata.namespace || '') === poolNs &&
+            Object.values(s.spec?.applications || {}).some(a =>
+              (a.routes || []).some(r => r.backendRef?.name === poolName)
+            ))
+          .map(s => `${s.metadata.namespace || ''}/${s.metadata.name}`)
       );
-      if (!referencingNames.size) return { health: 'unk', label: '' };
+      if (!referencingKeys.size) return { health: 'unk', label: '' };
 
       for (const svc of statusSvcs) {
-        if (!referencingNames.has(svc.name)) continue;
+        if (!referencingKeys.has(`${svc.namespace || ''}/${svc.name}`)) continue;
         // 1. Named group — exact per-pool counts
         const namedGroup = (svc.backendpoolStatus?.groups || []).find(g => g.name === poolName);
         if (namedGroup) {
@@ -5500,10 +5495,6 @@ const App = {
         nextTick(() => loadTopology());
       }
       loadCurrentView();
-    });
-
-    watch(clusterTopoView, (v) => {
-      if (v === 'graph') nextTick(() => renderClusterTopo());
     });
 
     watch(accessLogAutoRefresh, (on) => {
