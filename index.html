@@ -4859,21 +4859,21 @@ const App = {
       err:      { bg: '#FFEBEE', border: '#C62828' },
     };
 
-    // Return health of a specific endpoint IP:port from lbStatusRaw
+    // Return health of a specific endpoint IP:port from lbStatusRaw (httpProxy only)
     function _endpointHealth(ip, port) {
       const needle = port ? `${ip}:${port}` : ip;
-      for (const svc of (lbStatusRaw.value?.services || [])) {
+      for (const svc of _lbStatusServices()) {
         const eps = svc.t2BackendHealthcheckStatus?.endpoints || [];
         for (const ep of eps) {
           if (!ep) continue;
           const addr = ep.endpoint || '';
           // match "192.168.1.10:8080" or just IP prefix
           if (addr === needle || addr.startsWith(ip + ':')) {
-            return ep.status === 'OK' ? 'ok' : 'err';
+            return ep.healthy ? 'ok' : 'err';
           }
         }
       }
-      return 'unk';
+      return null; // no per-endpoint data (tcpProxy)
     }
 
     // Build child backend node elements for a given pool node id
@@ -4881,12 +4881,16 @@ const App = {
       const ns    = bp.metadata.namespace || '';
       const pname = bp.metadata.name;
       const items = bp.spec?.backends || [];
+      // For tcpProxy there's no per-endpoint health; use pool aggregate as fallback
+      const { health: poolAgg } = _backendPoolHealth(pname, ns);
+      // Map pool aggregate values to backendNode color keys
+      const poolFallback = poolAgg === 'ok' ? 'ok' : poolAgg === 'err' ? 'err' : 'unk';
       const result = [];
       for (let i = 0; i < items.length; i++) {
         const b    = items[i];
         const addr = b.ip || b.hostname || b.host || (b.k8sServiceRef?.name) || `backend-${i}`;
         const port = b.port || '';
-        const health = _endpointHealth(b.ip || addr, port);
+        const health = _endpointHealth(b.ip || addr, port) ?? poolFallback;
         const c = TOPO_COLORS.backendNode[health];
         const childId = `bnode:${ns}:${pname}:${i}`;
         const label = port ? `${addr}:${port}` : addr;
@@ -4920,21 +4924,26 @@ const App = {
       return conds.every(c => c.status === 'True') ? 'ok' : 'deg';
     }
 
-    function _backendPoolHealth(poolName, poolNs) {
-      const svcs = lbStatusRaw.value?.services || [];
-      for (const svc of svcs) {
-        const apps = resources.lbservices.find(
-          s => s.metadata.name === svc.name && s.metadata.namespace === (svc.namespace || poolNs)
-        );
-        if (!apps) continue;
-        const appSpec = apps.spec?.applications || {};
-        const refersPool = Object.values(appSpec).some(a =>
-          (a.routes || []).some(r => (r.backendRef?.name || r.backendRef) === poolName)
-          || (a.backendRef?.name || a.backendRef) === poolName
-        );
-        if (!refersPool) continue;
+    function _lbStatusServices() {
+      const d = lbStatusRaw.value;
+      return Array.isArray(d) ? d : (d?.services || []);
+    }
 
-        // 1. Named group — exact per-pool counts, preferred
+    function _backendPoolHealth(poolName, poolNs) {
+      const statusSvcs = _lbStatusServices();
+      // Find LBService specs that reference this pool
+      const referencingNames = new Set(
+        (resources.lbservices || [])
+          .filter(s => Object.values(s.spec?.applications || {}).some(a =>
+            (a.routes || []).some(r => r.backendRef?.name === poolName)
+          ))
+          .map(s => s.metadata.name)
+      );
+      if (!referencingNames.size) return { health: 'unk', label: '' };
+
+      for (const svc of statusSvcs) {
+        if (!referencingNames.has(svc.name)) continue;
+        // 1. Named group — exact per-pool counts
         const namedGroup = (svc.backendpoolStatus?.groups || []).find(g => g.name === poolName);
         if (namedGroup) {
           const o = namedGroup.ok ?? 0, t = namedGroup.total ?? 0;
@@ -4942,29 +4951,35 @@ const App = {
           return { health: h, label: `${o}/${t}` };
         }
 
-        // 2. Filter endpoint list to this pool's IPs
+        // 2. Per-endpoint healthcheck (httpProxy) — deduplicate by endpoint (one entry per T2 node)
         const poolSpec = (resources.lbbackendpools || []).find(
           b => b.metadata.name === poolName && (b.metadata.namespace || '') === poolNs
         );
         const poolIps = new Set((poolSpec?.spec?.backends || []).map(b => `${b.ip}:${b.port}`));
-        const endpoints = (svc.t2BackendHealthcheckStatus?.endpoints || [])
+        const rawEps = (svc.t2BackendHealthcheckStatus?.endpoints || [])
           .filter(ep => poolIps.has(ep.endpoint));
-        if (endpoints.length > 0) {
-          const ok = endpoints.filter(ep => ep.status === 'OK').length;
-          const total = endpoints.length;
+        if (rawEps.length > 0) {
+          const byEndpoint = new Map();
+          for (const ep of rawEps) {
+            if (!byEndpoint.has(ep.endpoint) || ep.healthy)
+              byEndpoint.set(ep.endpoint, ep);
+          }
+          const deduped = [...byEndpoint.values()];
+          const ok = deduped.filter(ep => ep.healthy).length;
+          const total = deduped.length;
           const h = ok === total ? 'ok' : ok === 0 ? 'err' : 'deg';
           return { health: h, label: `${ok}/${total}` };
         }
 
-        // 3. Single unnamed group (tcpProxy with no per-pool breakdown)
+        // 3. Single unnamed group (tcpProxy)
         const groups = svc.backendpoolStatus?.groups || [];
-        if (groups.length === 1) {
+        if (groups.length >= 1) {
           const o = groups[0].ok ?? 0, t = groups[0].total ?? 0;
           const h = groups[0].status === 'OK' || o === t ? 'ok' : o === 0 ? 'err' : 'deg';
           return { health: h, label: `${o}/${t}` };
         }
       }
-      return { health: 'unknown', label: '' };
+      return { health: 'unk', label: '' };
     }
 
     function buildGraphElements() {
