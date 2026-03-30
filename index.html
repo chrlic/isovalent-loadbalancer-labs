@@ -4887,10 +4887,10 @@ const App = {
         const c = TOPO_COLORS.backendNode[health];
         const childId = `bnode:${ns}:${pname}:${i}`;
         const label = port ? `${addr}:${port}` : addr;
-        // No parent — standalone node, will be positioned manually next to pool
         result.push({ data: {
           id: childId,
           label,
+          parent: `ns:${ns}`,
           type: 'backendNode',
           health,
           bgColor: c.bg, borderColor: c.border, textColor: c.text,
@@ -4898,13 +4898,9 @@ const App = {
           dimmed: false,
         }});
         // Edge from pool to this backend node
-        result.push({ data: {
-          id: `e:pool:${poolId}->${childId}`,
-          source: poolId,
-          target: childId,
-          edgeType: 'pool-node',
-          dashed: health === 'err',
-        }});
+        const poolEdge = { id: `e:pool:${poolId}->${childId}`, source: poolId, target: childId, edgeType: 'pool-node' };
+        if (health === 'err') poolEdge.dashed = true;
+        result.push({ data: poolEdge });
       }
       return result;
     }
@@ -4977,12 +4973,46 @@ const App = {
       return { health: 'unk', label: '' };
     }
 
+    const TOPO_NS_COLORS = [
+      { bg: 'rgba(227,242,253,0.55)', border: '#1565C0', text: '#0D47A1' },
+      { bg: 'rgba(232,245,233,0.55)', border: '#2E7D32', text: '#1B5E20' },
+      { bg: 'rgba(243,229,245,0.55)', border: '#6A1B9A', text: '#4A148C' },
+      { bg: 'rgba(255,248,225,0.55)', border: '#F57F17', text: '#E65100' },
+      { bg: 'rgba(224,247,250,0.55)', border: '#00696F', text: '#004D40' },
+      { bg: 'rgba(252,228,236,0.55)', border: '#880E4F', text: '#880E4F' },
+    ];
+    const _topoNsColorCache = {};
+    let   _topoNsColorIdx   = 0;
+    function _topoNsColor(ns) {
+      if (!_topoNsColorCache[ns]) _topoNsColorCache[ns] = TOPO_NS_COLORS[_topoNsColorIdx++ % TOPO_NS_COLORS.length];
+      return _topoNsColorCache[ns];
+    }
+
     function buildGraphElements() {
+      Object.keys(_topoNsColorCache).forEach(k => delete _topoNsColorCache[k]);
+      _topoNsColorIdx = 0;
+
       const elements = [];
       const showAllNs = !selectedNamespace.value || selectedNamespace.value === '(all)';
       const vips     = resources.lbvips       || [];
       const services = resources.lbservices   || [];
       const backends = resources.lbbackendpools || [];
+
+      // Collect all namespaces present and add compound parent nodes
+      const allNs = new Set([
+        ...vips.map(v => v.metadata.namespace || ''),
+        ...services.map(s => s.metadata.namespace || ''),
+        ...backends.map(b => b.metadata.namespace || ''),
+      ]);
+      for (const ns of allNs) {
+        const c = _topoNsColor(ns);
+        elements.push({ data: {
+          id: `ns:${ns}`,
+          label: ns || '(default)',
+          type: 'namespace',
+          bgColor: c.bg, borderColor: c.border, textColor: c.text,
+        }});
+      }
 
       // VIP nodes
       for (const v of vips) {
@@ -4993,9 +5023,10 @@ const App = {
                   || v.spec?.ipv4Request || '';
         const health = _healthFromConditions(v);
         const colors = TOPO_COLORS.vip;
-        const sublabel = ip ? (showAllNs ? `${ip} · ${ns}` : ip) : ns;
+        const sublabel = ip || '';
         elements.push({ data: {
           id, label: name, sublabel,
+          parent: `ns:${ns}`,
           type: 'vip', health,
           bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
           tooltip: `VIP: ${ns}/${name}\nIP: ${ip || '(pending)'}\nHealth: ${health}`,
@@ -5012,14 +5043,15 @@ const App = {
         const colors = TOPO_COLORS.backend;
         const expanded = _expandedPools.has(id);
         const healthPart = hLabel || `${count} backend${count !== 1 ? 's' : ''}`;
-        const sublabel = (expanded ? '▼ ' : '▶ ') + healthPart + (showAllNs ? ` · ${ns}` : '');
+        const sublabel = (expanded ? '▼ ' : '▶ ') + healthPart;
         elements.push({ data: {
           id, label: name, sublabel,
+          parent: `ns:${ns}`,
           type: 'backend', health, expandable: true, expanded,
           bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
           tooltip: `BackendPool: ${ns}/${name}\nBackends: ${count}${hLabel ? `\nHealth: ${hLabel}` : ''}\n${expanded ? 'Click to collapse' : 'Click to expand'}`,
         }});
-        // If expanded, add child backend nodes
+        // If expanded, add child backend nodes (no parent — positioned outside compound)
         if (expanded) {
           for (const child of _backendChildElements(id, bp)) {
             elements.push(child);
@@ -5047,9 +5079,9 @@ const App = {
                        : health;
 
         const colors = TOPO_COLORS.service;
-        const svcSublabel = showAllNs ? `${appType} · ${ns}` : appType;
         elements.push({ data: {
-          id, label: name, sublabel: svcSublabel,
+          id, label: name, sublabel: appType,
+          parent: `ns:${ns}`,
           type: 'service', health: rtHealth,
           bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
           tooltip: `Service: ${ns}/${name}\nType: ${appType}${rtStatus ? `\nStatus: ${rtStatus}` : ''}`,
@@ -5065,7 +5097,6 @@ const App = {
               id: `e:vip:${vipId}->${id}`,
               source: vipId, target: id,
               label: '', edgeType: 'vip-svc',
-              dashed: false,
             }});
           }
         }
@@ -5083,21 +5114,22 @@ const App = {
 
             // health of this specific backend
             const { health: bpHealth } = _backendPoolHealth(bpName, ns);
-            const dashed = bpHealth === 'deg' || bpHealth === 'err';
+            const edgeDashed = bpHealth === 'deg' || bpHealth === 'err' ? true : undefined;
 
             // Route label
             const hosts = (route.matchHostNames || []).join(', ');
             const pathPart = route.matchPathValue ? `${route.matchPathType || ''} ${route.matchPathValue}`.trim() : '';
             const edgeLabel = [hosts, pathPart].filter(Boolean).join('\n');
 
-            elements.push({ data: {
+            const edata = {
               id: `e:svc:${id}->${bpId}:${bpName}`,
               source: id, target: bpId,
               label: edgeLabel,
               edgeType: 'svc-backend',
-              dashed,
               tooltip: edgeLabel ? `Route:\n${edgeLabel}` : '',
-            }});
+            };
+            if (edgeDashed) edata.dashed = true;
+            elements.push({ data: edata });
           }
           // tcpProxy / udpProxy: direct backendRef
           const directRef = appObj?.backendRef?.name || appObj?.backendRef || '';
@@ -5106,15 +5138,15 @@ const App = {
             const bpExists = backends.some(b => b.metadata.name === directRef && b.metadata.namespace === ns);
             if (!bpExists) continue;
             const { health: bpHealth } = _backendPoolHealth(directRef, ns);
-            const dashed = bpHealth === 'deg' || bpHealth === 'err';
-            elements.push({ data: {
+            const edata = {
               id: `e:svc:${id}->${bpId}:direct`,
               source: id, target: bpId,
               label: appType,
               edgeType: 'svc-backend',
-              dashed,
               tooltip: `Type: ${appType}`,
-            }});
+            };
+            if (bpHealth === 'deg' || bpHealth === 'err') edata.dashed = true;
+            elements.push({ data: edata });
           }
         }
       }
@@ -5176,9 +5208,11 @@ const App = {
           }
         }
 
-        // Tag each element with focused/dimmed
+        // Tag each element with focused/dimmed (namespace compounds are never dimmed)
         for (const el of elements) {
-          if (el.data.source) {
+          if (el.data.type === 'namespace') {
+            el.data.dimmed = false;
+          } else if (el.data.source) {
             el.data.dimmed = !(focusedIds.has(el.data.source) && focusedIds.has(el.data.target));
           } else {
             el.data.dimmed = !focusedIds.has(el.data.id);
@@ -5371,6 +5405,27 @@ const App = {
               'border-color': '#1B5E20',
               'overlay-color': '#1B5E20',
               'overlay-opacity': 0.08,
+            }
+          },
+          {
+            selector: 'node[type="namespace"]',
+            style: {
+              'shape': 'roundrectangle',
+              'background-color': 'data(bgColor)',
+              'border-color': 'data(borderColor)',
+              'border-width': 2,
+              'border-style': 'dashed',
+              'label': 'data(label)',
+              'text-valign': 'top',
+              'text-halign': 'center',
+              'font-size': 11,
+              'font-weight': 'bold',
+              'color': 'data(textColor)',
+              'text-background-color': 'data(bgColor)',
+              'text-background-opacity': 1,
+              'text-background-padding': '3px',
+              'padding': '20px',
+              'compound-sizing-wrt-labels': 'include',
             }
           },
           {
