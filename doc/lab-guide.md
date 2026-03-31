@@ -470,21 +470,7 @@ sudo iptables-save | sudo tee /etc/sysconfig/iptables
 sudo systemctl enable iptables
 ```
 
-### 5d. Route on the upstream FRR router
-
-The upstream FRR router (`192.168.33.1`) receives VIP `/32` routes from the host FRR with
-next-hop `192.168.33.24` (the host physical IP). It also needs a route back to the Kind
-bridge subnet so it can reach the T1 node for the BGP session itself:
-
-```
-! On the upstream FRR router (192.168.33.1):
-ip route 172.19.0.0/16 192.168.33.24
-```
-
-> Without this, the upstream router cannot establish the BGP session to `192.168.33.24`
-> because the T1 node's return path goes through `172.19.0.x` which is not otherwise known.
-
-### 5e. Route on external nodes
+### 5d. Route on external nodes
 
 On each external node that needs to reach VIPs, add a route pointing the VIP pool at the
 ILB host:
@@ -497,7 +483,7 @@ In a real environment this route would be learned automatically via BGP from the
 router. In this lab it must be added manually since the external test node is not a BGP
 speaker.
 
-### 5f. Proxy environment variable
+### 5e. Proxy environment variable
 
 If the host has `http_proxy` set (corporate proxy), curl routes VIP requests through it.
 Bypass with:
@@ -567,7 +553,7 @@ This subnet must be:
 
 > In this lab `172.20.0.0/24` is used. It does not exist on any interface — it is purely
 > a BGP-advertised range. The host needs a static route pointing it at the T1 node
-> (see section 5c), and external nodes need a route pointing it at the host (section 5e).
+> (see section 5c), and external nodes need a route pointing it at the host (section 5d).
 
 The pool is cluster-scoped (no namespace). Each `LBVIP` requests one address from it.
 If `ipv4Request` is omitted, the next available address is assigned automatically.
