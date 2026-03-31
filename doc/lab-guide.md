@@ -574,67 +574,94 @@ kubectl get lbvip first -o jsonpath='{.status.addresses}'
 
 ## 7. Backend Servers (nginx)
 
-This lab uses two external backend VMs:
+The `backend/` directory in this repo contains a universal nginx backend image that supports
+both HTTP and HTTPS and returns diagnostic information (hostname, local IP, protocol, path,
+client IP) on every request. It is suitable for both Docker container backends and VM backends.
+
+### Endpoints
+
+| Path | Response |
+|------|----------|
+| `/healthz` | `OK` (plain text — health check) |
+| `/status` | Plain text: hostname, local IP, protocol, path, client IP |
+| `/list` | Same as `/status` (separate path for routing rule tests) |
+| `/` | HTML table with the same info |
+
+HTTP listens on `:8080`, HTTPS on `:8443` (self-signed certificate generated at image build time).
+
+### Build the image
+
+```bash
+docker build -t ilb-backend backend/
+```
+
+### Option A: Docker container backends (recommended for flexibility)
+
+Create a dedicated Docker network with a fixed subnet so containers get stable IPs:
+
+```bash
+docker network create --subnet 172.21.0.0/24 ilb-backends
+```
+
+Run as many backends as needed, each with a fixed IP:
+
+```bash
+docker run -d --name backend1 --network ilb-backends --ip 172.21.0.10 --restart unless-stopped ilb-backend
+docker run -d --name backend2 --network ilb-backends --ip 172.21.0.11 --restart unless-stopped ilb-backend
+```
+
+The IP persists across `docker stop`/`start`. It is only lost on `docker rm` (recreate with the
+same `--ip` to restore it).
+
+Make the `ilb-backends` bridge reachable from the Kind cluster. Find the bridge name and add a
+forwarding rule (similar to section 5c):
+
+```bash
+# Find the bridge interface for the ilb-backends network
+docker network inspect ilb-backends --format '{{.Id}}' | cut -c1-12
+# Bridge will be br-<id>, e.g. br-a1b2c3d4e5f6
+
+BACKENDS_BRIDGE=br-a1b2c3d4e5f6   # replace with actual bridge name
+KIND_BRIDGE=br-2ef19183f3a9        # replace with Kind bridge name (from section 5c)
+
+# Allow forwarding between Kind and the backends bridge
+sudo iptables -I FORWARD 1 -i $KIND_BRIDGE -o $BACKENDS_BRIDGE -j ACCEPT
+sudo iptables -I FORWARD 1 -i $BACKENDS_BRIDGE -o $KIND_BRIDGE -j ACCEPT
+```
+
+Reference the container IPs in the `LBBackendPool` (section 9):
+
+```yaml
+spec:
+  backendType: IP
+  backends:
+    - ip: 172.21.0.10
+      port: 8080
+      weight: 1
+    - ip: 172.21.0.11
+      port: 8080
+      weight: 1
+  healthCheck:
+    path: /healthz
+    port: 8080
+```
+
+### Option B: External VM backends
+
+This lab also uses two external backend VMs:
 
 | VM | IP | Port |
 |----|-----|------|
 | ilb-server1 | `192.168.39.221` | 8080 |
 | ilb-server2 | `192.168.39.222` | 8080 |
 
-Adjust these addresses to match your environment — they are referenced in the
-`LBBackendPool` manifest in section 9 and must be reachable from the T2 nodes.
+Copy `backend/nginx.conf` to `/etc/nginx/nginx.conf` on each VM and restart nginx:
 
-Deploy nginx on your backend VMs. The config listens on port 8080 and provides:
-- `/` — HTML page showing hostname, IP, request info (useful for verifying load balancing)
-- `/health` — returns `200 OK` (canonical health check)
-- `/healtz` — returns `200 OK` (matches the typo used in example backend pool configs)
-
-### nginx.conf
-
-```nginx
-events {}
-
-http {
-    server {
-        listen 8080;
-
-        # Default page — identifies this server instance
-        location / {
-            default_type text/html;
-            return 200 '<!DOCTYPE html>
-<html>
-<head><title>Backend: $hostname</title></head>
-<body>
-  <h1>Backend Server</h1>
-  <p><strong>Host:</strong> $hostname</p>
-  <p><strong>Address:</strong> $server_addr:$server_port</p>
-  <p><strong>Request:</strong> $request</p>
-  <p><strong>Client:</strong> $remote_addr</p>
-</body>
-</html>';
-        }
-
-        # Health check endpoint (note: path matches /healtz typo in firstpool)
-        location /healtz {
-            default_type text/plain;
-            return 200 'OK';
-        }
-
-        # Canonical health check path
-        location /health {
-            default_type text/plain;
-            return 200 'OK';
-        }
-    }
-}
-```
-
-For external VMs, save as `/etc/nginx/nginx.conf` and restart nginx:
 ```bash
 sudo systemctl restart nginx
 ```
 
-For in-cluster backends, create a ConfigMap and Deployment:
+### Option C: In-cluster Kubernetes backends
 
 ```yaml
 apiVersion: v1
@@ -644,38 +671,7 @@ metadata:
   namespace: default
 data:
   nginx.conf: |
-    events {}
-
-    http {
-        server {
-            listen 8080;
-
-            location / {
-                default_type text/html;
-                return 200 '<!DOCTYPE html>
-    <html>
-    <head><title>Backend: $hostname</title></head>
-    <body>
-      <h1>Backend Server</h1>
-      <p><strong>Host:</strong> $hostname</p>
-      <p><strong>Address:</strong> $server_addr:$server_port</p>
-      <p><strong>Request:</strong> $request</p>
-      <p><strong>Client:</strong> $remote_addr</p>
-    </body>
-    </html>';
-            }
-
-            location /healtz {
-                default_type text/plain;
-                return 200 'OK';
-            }
-
-            location /health {
-                default_type text/plain;
-                return 200 'OK';
-            }
-        }
-    }
+    # paste contents of backend/nginx.conf here
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -694,13 +690,10 @@ spec:
     spec:
       containers:
       - name: nginx
-        image: nginx:1.27
+        image: ilb-backend
         ports:
         - containerPort: 8080
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nginx/nginx.conf
-          subPath: nginx.conf
+        - containerPort: 8443
       volumes:
       - name: config
         configMap:
