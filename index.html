@@ -4998,22 +4998,6 @@ const App = {
       const services = resources.lbservices   || [];
       const backends = resources.lbbackendpools || [];
 
-      // Collect all namespaces present and add compound parent nodes
-      const allNs = new Set([
-        ...vips.map(v => v.metadata.namespace || ''),
-        ...services.map(s => s.metadata.namespace || ''),
-        ...backends.map(b => b.metadata.namespace || ''),
-      ]);
-      for (const ns of allNs) {
-        const c = _topoNsColor(ns);
-        elements.push({ data: {
-          id: `ns:${ns}`,
-          label: ns || '(default)',
-          type: 'namespace',
-          bgColor: c.bg, borderColor: c.border, textColor: c.text,
-        }});
-      }
-
       // VIP nodes
       for (const v of vips) {
         const ns   = v.metadata.namespace || '';
@@ -5208,15 +5192,45 @@ const App = {
           }
         }
 
-        // Tag each element with focused/dimmed (namespace compounds are never dimmed)
+        // Tag each element with focused/dimmed
         for (const el of elements) {
-          if (el.data.type === 'namespace') {
-            el.data.dimmed = false;
-          } else if (el.data.source) {
+          if (el.data.source) {
             el.data.dimmed = !(focusedIds.has(el.data.source) && focusedIds.has(el.data.target));
           } else {
             el.data.dimmed = !focusedIds.has(el.data.id);
           }
+        }
+
+        // Add namespace compounds only for namespaces with at least one focused node
+        const visibleNs = new Set(
+          elements
+            .filter(el => !el.data.source && !el.data.dimmed && el.data.parent)
+            .map(el => el.data.parent)
+        );
+        for (const nsId of visibleNs) {
+          const ns = nsId.slice(3); // strip 'ns:'
+          const c = _topoNsColor(ns);
+          elements.push({ data: {
+            id: nsId,
+            label: ns || '(default)',
+            type: 'namespace',
+            bgColor: c.bg, borderColor: c.border, textColor: c.text,
+          }});
+        }
+      } else {
+        // No focus — add namespace compounds for all namespaces present
+        const allNs = new Set(
+          elements.filter(el => el.data.parent).map(el => el.data.parent)
+        );
+        for (const nsId of allNs) {
+          const ns = nsId.slice(3);
+          const c = _topoNsColor(ns);
+          elements.push({ data: {
+            id: nsId,
+            label: ns || '(default)',
+            type: 'namespace',
+            bgColor: c.bg, borderColor: c.border, textColor: c.text,
+          }});
         }
       }
 
@@ -5515,7 +5529,7 @@ const App = {
           const totalH = (childNodes.length - 1) * spacing;
           childNodes.forEach((child, i) => {
             child.position({
-              x: parentPos.x + nodeWidth / 2 + 80,
+              x: parentPos.x + nodeWidth / 2 + 160,
               y: parentPos.y - totalH / 2 + i * spacing,
             });
           });
