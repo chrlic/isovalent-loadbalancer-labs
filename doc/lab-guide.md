@@ -470,20 +470,7 @@ sudo iptables-save | sudo tee /etc/sysconfig/iptables
 sudo systemctl enable iptables
 ```
 
-### 5d. Route on external nodes
-
-On each external node that needs to reach VIPs, add a route pointing the VIP pool at the
-ILB host:
-
-```bash
-sudo ip route add 172.20.0.0/24 via 192.168.33.24
-```
-
-In a real environment this route would be learned automatically via BGP from the upstream
-router. In this lab it must be added manually since the external test node is not a BGP
-speaker.
-
-### 5e. Proxy environment variable
+### 5d. Proxy environment variable
 
 If the host has `http_proxy` set (corporate proxy), curl routes VIP requests through it.
 Bypass with:
@@ -553,7 +540,7 @@ This subnet must be:
 
 > In this lab `172.20.0.0/24` is used. It does not exist on any interface — it is purely
 > a BGP-advertised range. The host needs a static route pointing it at the T1 node
-> (see section 5c), and external nodes need a route pointing it at the host (section 5d).
+> (see section 5c); external nodes reach VIPs via BGP routes learned by their upstream router.
 
 The pool is cluster-scoped (no namespace). Each `LBVIP` requests one address from it.
 If `ipv4Request` is omitted, the next available address is assigned automatically.
