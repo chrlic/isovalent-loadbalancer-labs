@@ -14,33 +14,34 @@ and all the routing fixes required to make it work in this topology.
 
 ```
   External Network 192.168.33.0/24
-  ┌──────────────────────────────────────────────────────────────────────┐
-  │                                                                      │
-  │   ┌─────────────────┐          ┌──────────────────────────────────┐  │
-  │   │   FRR Router    │  BGP     │        ILB Host (RHEL)           │  │
-  │   │  192.168.33.1   │◄────────►│       192.168.33.24 (ens192)     │  │
-  │   │   ASN 65220     │          │                                  │  │
-  │   └─────────────────┘          │  Kind bridge br-XXXX             │  │
-  │                                │  172.19.0.1  (172.19.0.0/16)     │  │
-  │   ┌─────────────────┐          │  ┌────────────────────────────┐  │  │
-  │   │  External Node  │          │  │  kind-worker  172.19.0.4   │  │  │
-  │   │  192.168.33.10  │          │  │  T1  (L3/L4 BPF LB)        │  │  │
-  │   └─────────────────┘          │  ├────────────────────────────┤  │  │
-  │                                │  │  kind-worker2 172.19.0.3   │  │  │
-  │                                │  │  T2  (L5-L7 Envoy)         │  │  │
-  │                                │  ├────────────────────────────┤  │  │
-  │                                │  │  kind-worker3 172.19.0.2   │  │  │
-  │                                │  │  T2  (L5-L7 Envoy)         │  │  │
-  │                                │  ├────────────────────────────┤  │  │
-  │                                │  │  control-plane 172.19.0.5  │  │  │
-  │                                │  └────────────────────────────┘  │  │
-  │                                │                                  │  │
-  │                                │  VIP pool: 172.20.0.0/24         │  │
-  │                                │    172.20.0.1  → first service   │  │
-  │                                │    172.20.0.2  → ilb-gui         │  │
-  │                                └──────────────────────────────────┘  │
-  │                                                                      │
-  └──────────────────────────────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │                                                                              │
+  │   ┌─────────────────┐  BGP(eBGP)   ┌──────────────────────────────────────┐ │
+  │   │   BGP Router    │◄────────────►│         ILB Host (RHEL/CentOS)       │ │
+  │   │  192.168.33.1   │  ASN 65220   │  192.168.33.24 (ens192)  ASN 65200   │ │
+  │   │   ASN 65220     │◄── VIP /32s ─┤  FRR (local BGP relay)               │ │
+  │   └─────────────────┘              │                                      │ │
+  │                                    │  Kind bridge br-XXXX  172.19.0.1     │ │
+  │   ┌─────────────────┐              │  ┌──────────────────────────────────┐ │ │
+  │   │  External Node  │              │  │  kind-worker  172.19.0.5         │ │ │
+  │   │  192.168.33.10  │              │  │  T1  (L3/L4 BPF LB)  ASN 64512  │ │ │
+  │   └─────────────────┘              │  │  BGP peer → 172.19.0.1 (host)    │ │ │
+  │                                    │  ├──────────────────────────────────┤ │ │
+  │                                    │  │  kind-worker2 172.19.0.3         │ │ │
+  │                                    │  │  T2  (L5-L7 Envoy)               │ │ │
+  │                                    │  ├──────────────────────────────────┤ │ │
+  │                                    │  │  kind-worker3 172.19.0.2         │ │ │
+  │                                    │  │  T2  (L5-L7 Envoy)               │ │ │
+  │                                    │  ├──────────────────────────────────┤ │ │
+  │                                    │  │  control-plane 172.19.0.5 (cp)   │ │ │
+  │                                    │  └──────────────────────────────────┘ │ │
+  │                                    │                                      │ │
+  │                                    │  VIP pool: 172.20.0.0/24             │ │
+  │                                    │    172.20.0.1  → first service       │ │
+  │                                    │    172.20.0.2  → ilb-gui             │ │
+  │                                    └──────────────────────────────────────┘ │
+  │                                                                              │
+  └──────────────────────────────────────────────────────────────────────────────┘
 
   Backend Network 192.168.39.0/24
   ┌──────────────────────────────────────┐
@@ -49,20 +50,28 @@ and all the routing fixes required to make it work in this topology.
   └──────────────────────────────────────┘
 ```
 
+**BGP peering chain:**
+```
+  T1 node (ASN 64512)  ──eBGP──►  Host FRR (ASN 65200)  ──eBGP──►  Upstream FRR (ASN 65220)
+  172.19.0.5                       172.19.0.1 / 192.168.33.24        192.168.33.1
+  advertises VIP /32s              relays VIP /32s upstream           installs routes, reaches VIPs
+```
+
 **Address summary:**
 
-| Component         | Address / Subnet       | Notes                          |
-|-------------------|------------------------|--------------------------------|
-| ILB host (ens192) | 192.168.33.24          | Physical NIC                   |
-| ILB host (bridge) | 172.19.0.1             | Kind bridge gateway            |
-| Kind subnet       | 172.19.0.0/16          | Docker bridge network          |
-| T1 node           | 172.19.0.4             | kind-worker, L3/L4             |
-| T2 nodes          | 172.19.0.3, .0.2       | kind-worker2/3, L5-L7/Envoy   |
-| VIP pool          | 172.20.0.0/24          | BGP-advertised                 |
-| BGP router        | 192.168.33.1 ASN 65220 | FRR                            |
-| ILB local ASN     | 64512                  | Advertised from T1 node        |
-| Backend VMs       | 192.168.39.221/222     | External, port 8080            |
-| External client   | 192.168.33.10          | Test node                      |
+| Component              | Address / Subnet       | Notes                                   |
+|------------------------|------------------------|-----------------------------------------|
+| ILB host (ens192)      | 192.168.33.24          | Physical NIC                            |
+| ILB host (bridge)      | 172.19.0.1             | Kind bridge gateway, BGP peer for ILB   |
+| Host FRR ASN           | 65200                  | BGP relay on the ILB host               |
+| Kind subnet            | 172.19.0.0/16          | Docker bridge network                   |
+| T1 node                | 172.19.0.5             | kind-worker, L3/L4                      |
+| T2 nodes               | 172.19.0.3, .0.2       | kind-worker2/3, L5-L7/Envoy             |
+| VIP pool               | 172.20.0.0/24          | BGP-advertised as /32 host routes       |
+| Upstream BGP router    | 192.168.33.1 ASN 65220 | FRR in network infrastructure           |
+| ILB local ASN          | 64512                  | Advertised from T1 node                 |
+| Backend VMs            | 192.168.39.221/222     | External, port 8080                     |
+| External client        | 192.168.33.10          | Test node                               |
 
 ---
 
@@ -309,17 +318,15 @@ The VIP pool (`172.20.0.0/24`) is outside the Kind bridge subnet (`172.19.0.0/16
 Without extra configuration neither the host nor external nodes can reach VIPs, and the T1
 BPF program will not delegate L7 processing to T2 for external clients.
 
+> **Lab note:** The networking complexity in this section (IP forwarding, iptables rules,
+> MASQUERADE, FRR relay) is specific to running ILB inside a Kind cluster on a single host.
+> In a production deployment on real nodes, BGP handles VIP reachability end-to-end and
+> none of these workarounds are needed.
+
 ### 5a. Enable IP forwarding
 
-> **Lab note:** The networking complexity in this entire section (IP forwarding, host routes,
-> iptables rules, MASQUERADE) is specific to running ILB inside a Kind cluster on a single
-> host. In a production deployment — whether ILB runs on a real Kubernetes cluster with
-> dedicated nodes, or on standalone VMs — the nodes have their own routable IPs, BGP handles
-> VIP reachability end-to-end, and none of these workarounds are needed.
-
 The host must act as a router — forwarding packets between `ens192` (physical NIC) and the
-Kind bridge. Docker enables this automatically for its own networks, but it is good practice
-to set it explicitly and persist it.
+Kind bridge.
 
 ```bash
 # Enable immediately
@@ -330,176 +337,165 @@ echo "net.ipv4.ip_forward = 1" | sudo tee /etc/sysctl.d/99-ilb.conf
 sudo sysctl -p /etc/sysctl.d/99-ilb.conf
 ```
 
-Verify:
+### 5b. Install and configure FRR on the host
+
+Running FRR on the ILB host as a BGP relay eliminates the need for static routes — VIP
+prefixes are learned dynamically from the ILB T1 node and redistributed to the upstream
+router. This also mirrors how a real network would work.
+
+**BGP topology:**
+```
+  T1 node              Host FRR             Upstream BGP router
+  ASN 64512            ASN 65200            ASN 65220
+  172.19.0.5  ──eBGP──► 172.19.0.1  ──eBGP──► 192.168.33.1
+  (Kind bridge)         (bridge GW)           (infra router)
+  advertises            relays VIP /32s
+  VIP /32s              installs them
+                        in kernel routing
+```
+
+Install FRR:
 ```bash
-sysctl net.ipv4.ip_forward
-# Expected: net.ipv4.ip_forward = 1
+sudo dnf install -y frr
 ```
 
-### Routing overview
-
-```
-  External node                 ILB Host                      Kind cluster
-  192.168.33.10                 192.168.33.24                 172.19.0.0/16
-        │                             │                              │
-        │  ① route on ext. node      │                              │
-        │  172.20.0.0/24              │                              │
-        │  via 192.168.33.24          │                              │
-        │ ──────────────────────────► │                              │
-        │                             │  ② route on ILB host        │
-        │                             │  172.20.0.0/24               │
-        │                             │  via 172.19.0.4 ────────────►│ T1 (172.19.0.4)
-        │                             │                              │
-        │  src:192.168.33.10          │  ③ iptables FORWARD ACCEPT  │
-        │  dst:172.20.0.1 ───────────►│  -i ens192 -o br-XXXX        │
-        │                             │  -d 172.20.0.0/24            │
-        │                             │  (Docker blocks by default)  │
-        │                             │                              │
-        │                             │  ④ iptables MASQUERADE      │
-        │                             │  -o br-XXXX                  │
-        │                             │  src 192.168.33.0/24         │
-        │                             │  dst 172.20.0.0/24           │
-        │                             │  → rewrites src to           │
-        │                             │    172.19.0.1 (bridge IP)    │
-        │                             │                              │
-        │                             │  src:172.19.0.1 ────────────►│ T1 sees local src
-        │                             │  dst:172.20.0.1              │ → delegates to T2
-        │                             │                              │ → Envoy handles L7
-        │                             │                              │
-        │                             │                              │ T2 → backend VM
-        │                             │                              │ 192.168.39.221:8080
-        │◄────────────────────────────│◄─────────────────────────────│
-                    response
-
-  BGP control plane:
-  ┌─────────────────────────────────────────────────────────────────────┐
-  │  T1 (172.19.0.4) ──BGP──► FRR (192.168.33.1)                        │
-  │  advertises 172.20.0.x/32 with next-hop 172.19.0.4                  │
-  │                                                                     │
-  │  FRR needs a route to 172.19.0.0/16 via 192.168.33.24 (ILB host)    │
-  │  so it can forward traffic destined to T1 back into the cluster     │
-  └─────────────────────────────────────────────────────────────────────┘
-```
-
-**Why each rule is needed:**
-
-| # | Applied on | Rule | Reason |
-|---|------------|------|--------|
-| ① | External node | `ip route add 172.20.0.0/24 via 192.168.33.24` | VIP pool not in routing table — packets never leave the external node |
-| ② | ILB host | `ip route add 172.20.0.0/24 via 172.19.0.4` | VIP pool not in Kind bridge subnet — without this the host sends VIP traffic to the default gateway (FRR), not to T1 |
-| ③ | ILB host | `iptables FORWARD ACCEPT -i ens192 -o br-XXXX -d 172.20.0.0/24` | Docker FORWARD policy is DROP; Docker only ACCEPTs traffic *from* bridges, not *into* them |
-| ④ | ILB host | `iptables MASQUERADE -o br-XXXX -s 192.168.33.0/24 -d 172.20.0.0/24` | T1 BPF `delegate-if-local` only delegates to T2 when source IP is in the Kind subnet. External IPs fail this check — MASQUERADE rewrites src to 172.19.0.1 so T1 treats the traffic as local |
-
-### 5b. Find Kind node addresses
-
-The routes in sections ② and ③ require the IP address of the T1 node inside the Kind
-cluster. Kind assigns IPs from the bridge subnet dynamically — find them with:
-
+Enable the BGP daemon:
 ```bash
-kubectl get nodes -o yaml | grep -A5 "addresses:"
+sudo sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
 ```
 
-Look for the `InternalIP` entry for each node, e.g.:
-
+Write `/etc/frr/frr.conf`:
 ```
-addresses:
-- address: 172.19.0.4
-  type: InternalIP
-- address: kind-worker
-  type: Hostname
+frr version 8.5.3
+frr defaults traditional
+hostname ilb-host
+log syslog informational
+service integrated-vtysh-config
+
+router bgp 65200
+ bgp router-id 192.168.33.24
+ bgp log-neighbor-changes
+ no bgp ebgp-requires-policy
+ no bgp network import-check
+
+ ! Peer group for ILB T1/T1-T2 nodes — define before bgp listen range
+ neighbor ilb-nodes peer-group
+ neighbor ilb-nodes remote-as 64512
+ neighbor ilb-nodes ebgp-multihop 3
+ neighbor ilb-nodes update-source 172.19.0.1
+
+ ! Accept BGP sessions from any node in the Kind bridge subnet
+ bgp listen range 172.19.0.0/16 peer-group ilb-nodes
+
+ ! Upstream FRR router
+ neighbor 192.168.33.1 remote-as 65220
+ neighbor 192.168.33.1 ebgp-multihop 3
+ neighbor 192.168.33.1 update-source 192.168.33.24
+
+ address-family ipv4 unicast
+  neighbor ilb-nodes activate
+  neighbor ilb-nodes soft-reconfiguration inbound
+  neighbor ilb-nodes route-map ACCEPT-ALL in
+  neighbor ilb-nodes route-map ACCEPT-ALL out
+
+  neighbor 192.168.33.1 activate
+  neighbor 192.168.33.1 soft-reconfiguration inbound
+  neighbor 192.168.33.1 route-map ACCEPT-ALL in
+  neighbor 192.168.33.1 route-map ACCEPT-ALL out
+ exit-address-family
+
+route-map ACCEPT-ALL permit 10
+
+line vty
 ```
 
-You can also get a compact view:
+Start and enable FRR:
 ```bash
-kubectl get nodes -o wide
+sudo systemctl enable --now frr
 ```
 
-The T1 node is whichever node has the label `service.cilium.io/node=t1`:
+Verify FRR is running and BGP sessions come up (after ILB BGP is configured in section 8):
 ```bash
-kubectl get nodes -l service.cilium.io/node=t1 -o wide
+sudo vtysh -c "show bgp summary"
+sudo vtysh -c "show bgp ipv4 unicast"
+# VIP /32 routes should appear with next-hop 172.19.x.x (T1 node)
+ip route show | grep "proto bgp"
 ```
 
-Use the `INTERNAL-IP` column value as the gateway for the host route below.
+> **`ebgp-multihop 3`** is required on both the ILB side and the host FRR side. The BGP
+> session between the T1 node and the host bridge IP crosses multiple hops through the
+> Docker/Kind bridging layer, exceeding the default eBGP TTL of 1.
 
-### 5c. Host route to VIP pool
+> The host FRR `bgp listen range` directive accepts dynamic BGP connections from any IP in
+> `172.19.0.0/16`. This means the config does not need updating if the T1 node IP changes
+> after a cluster recreation.
 
-The VIP pool (`172.20.0.0/24`) is a dedicated subnet that does not exist on any physical
-interface — it is defined in section 6 as a `CiliumLoadBalancerIPPool` and individual VIP
-addresses from it are advertised via BGP by the T1 node. Without a host route, the ILB
-host itself has no idea how to reach VIPs (it would send them to the default gateway), so
-traffic from the host to any VIP would never reach T1.
+### 5c. iptables rules for external access
 
+Find the Kind bridge name (it is generated and changes if the cluster is recreated):
 ```bash
-sudo ip route add 172.20.0.0/24 via 172.19.0.4 # replace with your T1 node IP
-```
-
-Persist with NetworkManager:
-```bash
-# Check connection name with: nmcli connection show
-nmcli connection modify ens192 +ipv4.routes "172.20.0.0/24 172.19.0.4"
-nmcli connection up ens192
-```
-
-### 5d. iptables rules for external access
-
-Find the Kind bridge name first (it is generated and changes if the cluster is recreated):
-```bash
-ip link show type bridge | grep br-
 docker network ls | grep kind-cilium
+ip link show type bridge | grep br-
 ```
-
-The bridge is the one with the `kind-cilium` id, it's status is UP.
 
 Apply both rules:
 ```bash
 BRIDGE=br-2ef19183f3a9   # replace with your bridge name (from above)
 NIC=ens192               # replace with your physical NIC name
 
-# ③ Allow forwarding from physical NIC into Kind bridge toward VIPs
+# Allow forwarding from physical NIC into Kind bridge toward VIPs
+# Docker FORWARD policy is DROP by default
 sudo iptables -I FORWARD 1 -i $NIC -o $BRIDGE -d 172.20.0.0/24 -j ACCEPT
 
-# ④ Masquerade all external source IPs as the bridge IP (172.19.0.1)
-#    T1's BPF delegate-if-local flag only delegates to T2 when source IP is
-#    in the Kind bridge subnet — MASQUERADE rewrites any external src to 172.19.0.1
-#    so T1 treats the traffic as local and correctly delegates L7 to T2/Envoy.
-#    No -s filter needed — this rule only fires for traffic going out the Kind bridge
-#    toward VIPs, so it won't affect unrelated traffic regardless of source subnet.
+# Masquerade external source IPs as the bridge gateway IP (172.19.0.1)
+# T1's BPF delegate-if-local flag only delegates to T2 when source IP is
+# in the Kind bridge subnet — MASQUERADE rewrites any external src to 172.19.0.1
+# so T1 treats the traffic as local and correctly delegates L7 to T2/Envoy.
 sudo iptables -t nat -A POSTROUTING -o $BRIDGE -d 172.20.0.0/24 -j MASQUERADE
 ```
 
-> The MASQUERADE rule matches the VIP subnet as destination — at `POSTROUTING` time the
-> destination is still the VIP (BPF DNAT runs inside the bridge, after this hook).
+> The MASQUERADE destination is the VIP subnet — at `POSTROUTING` time the destination is
+> still the VIP address (BPF DNAT runs inside the bridge, after this hook).
 
-Verify the rules matched after a test curl from an external node (packet counters should be non-zero):
+Verify after a test request (packet counters should be non-zero):
 ```bash
 sudo iptables -L FORWARD -n -v | grep "172.20"
 sudo iptables -t nat -L POSTROUTING -n -v | grep "172.20"
 ```
 
-If counters stay at zero, the traffic is not hitting these rules — check that `BRIDGE` and `NIC` names are correct and that the external node has the route from section 5e.
-
-Persist the iptables rules:
+Persist:
 ```bash
 sudo dnf install -y iptables-services
 sudo iptables-save | sudo tee /etc/sysconfig/iptables
 sudo systemctl enable iptables
 ```
 
+### 5d. Route on the upstream FRR router
+
+The upstream FRR router (`192.168.33.1`) receives VIP `/32` routes from the host FRR with
+next-hop `192.168.33.24` (the host physical IP). It also needs a route back to the Kind
+bridge subnet so it can reach the T1 node for the BGP session itself:
+
+```
+! On the upstream FRR router (192.168.33.1):
+ip route 172.19.0.0/16 192.168.33.24
+```
+
+> Without this, the upstream router cannot establish the BGP session to `192.168.33.24`
+> because the T1 node's return path goes through `172.19.0.x` which is not otherwise known.
+
 ### 5e. Route on external nodes
 
 On each external node that needs to reach VIPs, add a route pointing the VIP pool at the
-ILB host's physical IP:
+ILB host:
 
 ```bash
-# Replace 192.168.33.24 with the ILB host's IP on the shared subnet
 sudo ip route add 172.20.0.0/24 via 192.168.33.24
 ```
 
-Verify connectivity:
-```bash
-# Check packet proxy is not intercepting VIP traffic
-no_proxy='*' curl http://172.20.0.1:8080/
-```
+In a real environment this route would be learned automatically via BGP from the upstream
+router. In this lab it must be added manually since the external test node is not a BGP
+speaker.
 
 ### 5f. Proxy environment variable
 
@@ -513,6 +509,42 @@ no_proxy='*' curl http://172.20.0.1:8080/
 Or add the VIP subnet to `no_proxy` permanently in `/etc/environment`:
 ```
 no_proxy=172.20.0.0/24,localhost,127.0.0.1
+```
+
+### Routing overview
+
+```
+  External node          ILB Host                        Kind cluster
+  192.168.33.10          192.168.33.24                   172.19.0.0/16
+        │                      │                               │
+        │  route: 172.20/24    │                               │
+        │  via 192.168.33.24   │                               │
+        │ ───────────────────► │                               │
+        │                      │  iptables FORWARD ACCEPT      │
+        │  src:192.168.33.10   │  -i ens192 -o br-XXXX         │
+        │  dst:172.20.0.1 ────►│  -d 172.20.0.0/24             │
+        │                      │                               │
+        │                      │  iptables MASQUERADE          │
+        │                      │  -o br-XXXX                   │
+        │                      │  dst 172.20.0.0/24            │
+        │                      │  → src rewritten to           │
+        │                      │    172.19.0.1 (bridge GW)     │
+        │                      │                               │
+        │                      │  src:172.19.0.1 ─────────────►│ T1 sees local src
+        │                      │  dst:172.20.0.1               │ → delegates L7 to T2
+        │                      │                               │ → Envoy handles L7
+        │                      │                               │
+        │                      │                               │ T2 → backend VM
+        │◄─────────────────────│◄──────────────────────────────│ 192.168.39.221:8080
+                  response
+
+  BGP control plane (dynamic — no static VIP routes needed on host):
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │  T1 (172.19.0.5) ──eBGP──► Host FRR (172.19.0.1) ──eBGP──► FRR router │
+  │  ASN 64512                  ASN 65200               ASN 65220           │
+  │  advertises 172.20.0.x/32   installs /32 in kernel  receives /32 routes │
+  │  next-hop: 172.19.0.5       relays upstream                             │
+  └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -779,8 +811,8 @@ spec:
       localASN: 64512
       peers:
         - name: peer0
-          peerAddress: 192.168.33.1
-          peerASN: 65220
+          peerAddress: 172.19.0.1
+          peerASN: 65200
           peerConfigRef:
             name: ilb-peer-config
   nodeSelector:
@@ -801,42 +833,56 @@ This creates:
 - **IsovalentBFDProfile** — BFD liveness detection (300ms intervals, TTL 255, multiplier 3)
 - **IsovalentBGPPeerConfig** — peer config referencing BFD profile, eBGP multihop 3
 - **IsovalentBGPAdvertisement** — advertises `LoadBalancerIP` addresses for all LBVIPs
-- **IsovalentBGPClusterConfig** — peers with `192.168.33.1` (ASN 65220) from T1 nodes (local ASN 64512)
+- **IsovalentBGPClusterConfig** — peers with `172.19.0.1` (host FRR, ASN 65200) from T1 nodes (local ASN 64512)
 
-### FRR neighbor configuration
+### Host FRR configuration
 
-On the FRR router (or Nexus switch), configure the neighbor to match:
+The full host FRR config is in section 5b. Key points:
+
+- ILB T1 nodes connect to `172.19.0.1` (Kind bridge gateway). Host FRR accepts any T1/T1-T2
+  IP via `bgp listen range 172.19.0.0/16 peer-group ilb-nodes` — no fixed node IP needed.
+- Host FRR (ASN 65200) relays VIP `/32` routes to the upstream router (`192.168.33.1`).
+- VIP host routes are installed in the kernel automatically (`proto bgp`).
+
+> **`ebgp-multihop 3` is required** on the ILB side. The BGP session from T1 to the bridge
+> gateway traverses the Kind/Docker bridge and exceeds eBGP's default TTL of 1.
+
+### Upstream FRR router configuration
+
+On the upstream FRR router (`192.168.33.1`), peer with the host FRR:
 
 ```
 router bgp 65220
   router-id 192.168.33.1
-  log-neighbor-changes
-  neighbor 192.168.33.24
-    remote-as 64512
-    ebgp-multihop 3
-    address-family ipv4 unicast
+  neighbor 192.168.33.24 remote-as 65200
+  neighbor 192.168.33.24 ebgp-multihop 3
+  !
+  address-family ipv4 unicast
+    neighbor 192.168.33.24 activate
+  exit-address-family
+!
+! Route to Kind bridge subnet — needed to reach T1 next-hop in VIP route advertisements
+ip route 172.19.0.0/16 192.168.33.24
 ```
 
-> **Neighbor IP (`192.168.33.24`) is the Docker host's physical address**, not the T1 node IP.
-> BGP sessions originate from the T1 node inside Kind (`172.19.0.4`), but due to the iptables
-> MASQUERADE rule on the host, outbound BGP packets appear to the FRR router as coming from
-> the host's external interface (`192.168.33.24`).
-
-> **`ebgp-multihop 3` is required.** Standard eBGP expects peers to be directly connected
-> (1 hop). In this topology the BGP session crosses multiple hops: T1 node → Kind bridge →
-> Docker host → external network → FRR router. Without `ebgp-multihop`, FRR will drop the
-> session with a TTL expiry. The value of `3` covers the extra hops introduced by the
-> Kind/Docker bridging layer.
+> Peer address is `192.168.33.24` (host physical NIC) at ASN `65200` (host FRR).
+> The static route to `172.19.0.0/16` is needed so the upstream router can forward traffic
+> to the T1 node next-hop (`172.19.0.5`) carried in the VIP `/32` advertisements.
 
 Verify peering:
 ```bash
 cilium bgp peers
-cilium bgp routes advertised
-```
+# Expected: kind-worker   64512   65200   172.19.0.1   established
 
-> BGP routes are advertised with next-hop set to the T1 node IP (`172.19.0.4`).
-> The FRR router (`192.168.33.1`) must have a route back to `172.19.0.0/16` via this host
-> (`192.168.33.24`) for return traffic to work.
+cilium bgp routes advertised
+# Expected: 172.20.0.x/32 routes listed
+
+sudo vtysh -c "show bgp summary"
+# Expected: 172.19.0.5 (T1) and 192.168.33.1 (upstream) both Established
+
+ip route show | grep "proto bgp"
+# Expected: 172.20.0.1 and 172.20.0.2 via 172.19.0.5 proto bgp
+```
 
 ---
 
@@ -985,7 +1031,7 @@ The T1 BPF program has a `delegate-if-local` flag. It only delegates L7 processi
 (Envoy) when the source IP appears to be in the Kind subnet (`172.19.0.0/16`). Traffic from
 external nodes with IPs outside this subnet will not be delegated and times out.
 
-Fix: MASQUERADE external traffic as `172.19.0.1` (the kind bridge IP) before it enters the
+Fix: MASQUERADE external traffic as `172.19.0.1` (the Kind bridge IP) before it enters the
 bridge — see [Section 5c](#5c-iptables-rules-for-external-access).
 
 ### Kind bridge name
@@ -998,4 +1044,23 @@ docker network ls | grep kind-cilium
 ip link show type bridge | grep br-
 ```
 
-Update the iptables rules and route accordingly when recreating the cluster.
+Update the iptables rules accordingly when recreating the cluster. The host FRR config uses
+`bgp listen range 172.19.0.0/16` so it does **not** need updating when the T1 node IP
+changes — BGP reconnects automatically.
+
+### BGP not establishing after cluster recreation
+
+If the cluster is recreated, the T1 node gets a new IP. Host FRR will accept the new session
+automatically (via `bgp listen range`). If the session does not come up:
+
+```bash
+# Check host FRR sees the session attempt
+sudo vtysh -c "show bgp summary"
+sudo journalctl -u frr --since "5 minutes ago" | grep -i bgp
+
+# Check ILB BGP config still points to 172.19.0.1
+kubectl get isovalentbgpclusterconfig router-bgp -o jsonpath='{.spec.bgpInstances[0].peers[0].peerAddress}'
+
+# Restart FRR if needed
+sudo systemctl restart frr
+```
