@@ -4137,39 +4137,101 @@ const App = {
         }});
       }
 
-      // T1/T1-T2 → T2 edges per L7 service
-      const t2Svc = netTopoT2ByNode.value;
+      // Group compound nodes for T1 and T2 tiers
       const t1NodeIds = [...t1Nodes.value, ...t1t2Nodes.value].map(n => n.metadata.name);
       const t2NodeIds = [...t2Nodes.value, ...t1t2Nodes.value].map(n => n.metadata.name);
-      if (t1NodeIds.length && t2NodeIds.length) {
-        // Collect unique service names across all T2 nodes
-        const allT2Svcs = new Set();
-        for (const svcs of Object.values(t2Svc)) {
-          for (const s of svcs.services) allT2Svcs.add(`${s.ns}/${s.name}`);
+      const hasT1 = t1NodeIds.length > 0;
+      const hasT2 = t2NodeIds.length > 0;
+
+      if (hasT1) {
+        elements.push({ data: { id: 'group-t1', label: 'T1', type: 'group' } });
+        for (const id of t1NodeIds) {
+          const el = elements.find(e => e.data.id === `node-${id}`);
+          if (el) el.data.parent = 'group-t1';
         }
-        for (const t1 of t1NodeIds) {
-          for (const t2 of t2NodeIds) {
-            if (t1 === t2) continue;
-            const svcsOnT2 = t2Svc[t2]?.services || [];
-            if (!svcsOnT2.length) continue;
-            const label = svcsOnT2.map(s => `${s.ns ? s.ns+'/' : ''}${s.name}`).join('\n');
-            const anyDeg = svcsOnT2.some(s => s.status !== 'OK');
-            elements.push({ data: {
-              id: `e-t1t2-${t1}-${t2}`,
-              source: `node-${t1}`,
-              target: `node-${t2}`,
-              label,
-              edgeColor: anyDeg ? '#F9A825' : '#1565C0',
-              tooltip: `L7 traffic: ${t1} → ${t2}\n${label}`,
-            }});
-          }
+      }
+      if (hasT2) {
+        elements.push({ data: { id: 'group-t2', label: 'T2', type: 'group' } });
+        for (const id of t2NodeIds) {
+          // t1-t2 nodes appear in both tiers — only assign to t2 group if not already in t1
+          const el = elements.find(e => e.data.id === `node-${id}`);
+          if (el && !el.data.parent) el.data.parent = 'group-t2';
         }
+      }
+
+      // Also assign BGP peer nodes to a group
+      if (netTopoBGPPeers.value.length) {
+        elements.push({ data: { id: 'group-bgp', label: 'BGP Peers', type: 'group' } });
+        for (const peer of netTopoBGPPeers.value) {
+          const el = elements.find(e => e.data.id === `bgp-${peer.peerAddress}`);
+          if (el) el.data.parent = 'group-bgp';
+        }
+      }
+
+      // Single T1→T2 edge (between groups)
+      if (hasT1 && hasT2) {
+        const t2Svc = netTopoT2ByNode.value;
+        const anyDeg = Object.values(t2Svc).some(n => n.services.some(s => s.status !== 'OK'));
+        elements.push({ data: {
+          id: 'e-group-t1t2',
+          source: 'group-t1',
+          target: 'group-t2',
+          label: 'L7 services',
+          edgeColor: anyDeg ? '#F9A825' : '#1565C0',
+          tooltip: 'L7 traffic: T1 → T2 (Envoy)',
+        }});
+      }
+
+      // Anchor BGP group to the left of T1 group for dagre rank ordering
+      if (netTopoBGPPeers.value.length && hasT1) {
+        elements.push({ data: {
+          id: 'e-group-bgp-t1',
+          source: 'group-bgp',
+          target: 'group-t1',
+          label: '',
+          edgeColor: 'transparent',
+        }, style: { 'opacity': 0 } });
+      }
+
+      // Invisible node-level edges from each T1 node to each pure T2 node to enforce rank order
+      // (dagre compound ranking can be unreliable with only group-level edges)
+      const pureT2Ids = t2Nodes.value.map(n => n.metadata.name);
+      const pureT1Ids = [...t1Nodes.value, ...t1t2Nodes.value].map(n => n.metadata.name);
+      if (pureT1Ids.length && pureT2Ids.length) {
+        // One representative edge: first T1 node → first T2 node
+        elements.push({ data: {
+          id: 'e-rank-t1-t2',
+          source: `node-${pureT1Ids[0]}`,
+          target: `node-${pureT2Ids[0]}`,
+          label: '',
+          edgeColor: 'transparent',
+        }, style: { 'opacity': 0 } });
       }
 
       _cyNet = cytoscape({
         container,
         elements,
         style: [
+          {
+            selector: 'node[type="group"]',
+            style: {
+              'shape': 'round-rectangle',
+              'background-color': '#F5F5F5',
+              'background-opacity': 0.5,
+              'border-color': '#BDBDBD',
+              'border-width': 1.5,
+              'border-style': 'dashed',
+              'label': 'data(label)',
+              'text-valign': 'top',
+              'text-halign': 'center',
+              'font-size': 10,
+              'font-weight': 'bold',
+              'color': '#757575',
+              'text-margin-y': 6,
+              'padding': 16,
+              'compound-sizing-wrt-labels': 'include',
+            }
+          },
           {
             selector: 'node[type="bgppeer"], node[type="ciliumnode"]',
             style: {
@@ -4214,15 +4276,39 @@ const App = {
             }
           },
         ],
-        layout: {
-          name: 'dagre',
-          rankDir: 'LR',
-          nodeSep: 50,
-          rankSep: 160,
-          padding: 40,
-          animate: false,
-        },
+        layout: { name: 'preset' },
       });
+
+      // Run dagre layout manually so we can hook layoutstop
+      const netLayout = _cyNet.layout({
+        name: 'dagre',
+        rankDir: 'LR',
+        ranker: 'tight-tree',
+        nodeSep: 50,
+        rankSep: 80,
+        padding: 40,
+        animate: false,
+      });
+      netLayout.one('layoutstop', () => {
+        const groupIds = ['group-bgp', 'group-t1', 'group-t2'];
+        const groups = groupIds.map(id => _cyNet.getElementById(id)).filter(n => n.length);
+        if (groups.length < 2) return;
+        const bboxes = groups.map(g => g.boundingBox());
+        const minY = Math.min(...bboxes.map(b => b.y1));
+        const maxY = Math.max(...bboxes.map(b => b.y2));
+        const midY = (minY + maxY) / 2;
+        for (let i = 0; i < groups.length; i++) {
+          const bb = bboxes[i];
+          const dy = midY - (bb.y1 + bb.h / 2);
+          if (Math.abs(dy) < 1) continue;
+          groups[i].children().forEach(child => {
+            const pos = child.position();
+            child.position({ x: pos.x, y: pos.y + dy });
+          });
+        }
+        _cyNet.fit(undefined, 40);
+      });
+      netLayout.run();
 
       // Tooltip
       if (!document.getElementById('cy-net-tooltip')) {
