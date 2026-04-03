@@ -3968,22 +3968,14 @@ const App = {
       }
     }
 
-    function initNetTopoGraph() {
-      const container = document.getElementById('cy-net-container');
-      if (!container) return;
-      if (_cyNet) { _cyNet.destroy(); _cyNet = null; }
-
-      const elements = [];
-      const STATE_COLOR = s => s === 'established' ? '#2E7D32' : s ? '#C62828' : '#9E9E9E';
-      const NODE_W = 210;
-      const ROW_H  = 18;
-      const HDR_H  = 32;
-      const PAD    = 8;
-
-      // Build SVG card matching the diagram node style
-      // lines: [{ text, color }]
-      let _svgIdSeq = 0;
-      function makeNodeSvg(title, subtitle, accentColor, bgColor, borderColor, lines) {
+    // ── Shared SVG card renderer (used by both topology views) ───────────────
+    const SVG_NODE_W = 210;
+    const SVG_ROW_H  = 18;
+    const SVG_HDR_H  = 32;
+    const SVG_PAD    = 8;
+    let _svgIdSeq    = 0;
+    function makeNodeSvg(title, subtitle, accentColor, bgColor, borderColor, lines) {
+        const NODE_W = SVG_NODE_W, ROW_H = SVG_ROW_H, HDR_H = SVG_HDR_H, PAD = SVG_PAD;
         const cpId = `cp${_svgIdSeq++}`;
         const nLines = Math.max(lines.length, 1);
         // chip row after header
@@ -4024,7 +4016,16 @@ const App = {
   <line x1="${PAD}" y1="${HDR_H + CHIP_H}" x2="${NODE_W - PAD}" y2="${HDR_H + CHIP_H}" stroke="${borderColor}" stroke-width="0.5" opacity="0.4"/>
   ${rowsSvg}
 </svg>`);
-      }
+    }
+
+    function initNetTopoGraph() {
+      const container = document.getElementById('cy-net-container');
+      if (!container) return;
+      if (_cyNet) { _cyNet.destroy(); _cyNet = null; }
+
+      const elements = [];
+      const STATE_COLOR = s => s === 'established' ? '#2E7D32' : s ? '#C62828' : '#9E9E9E';
+      const NODE_W = SVG_NODE_W;
 
       // BGP peer nodes — no session detail here, that belongs to T1 nodes
       for (const peer of netTopoBGPPeers.value) {
@@ -5668,13 +5669,15 @@ const App = {
         const c = TOPO_COLORS.backendNode[health];
         const childId = `bnode:${ns}:${pname}:${i}`;
         const label = port ? `${addr}:${port}` : addr;
+        const bnLines = [{ text: health === 'ok' ? 'Healthy' : health === 'err' ? 'Unhealthy' : 'Unknown', color: c.border }];
+        if (b.weight) bnLines.push({ text: `weight: ${b.weight}`, color: '#9E9E9E' });
+        const bgImg = makeNodeSvg(label, 'backend endpoint', c.border, c.bg, c.border, bnLines);
         result.push({ data: {
           id: childId,
-          label,
           parent: `ns:${ns}`,
           type: 'backendNode',
           health,
-          bgColor: c.bg, borderColor: c.border, textColor: c.text,
+          bgImg, nodeW: SVG_NODE_W, nodeH: makeNodeSvg._lastH,
           tooltip: `${addr}${port ? ':'+port : ''}\nHealth: ${health === 'ok' ? 'Healthy' : health === 'err' ? 'Unhealthy' : 'Unknown'}${b.weight ? `\nWeight: ${b.weight}` : ''}`,
           dimmed: false,
         }});
@@ -5787,13 +5790,17 @@ const App = {
         const ip   = v.status?.ipv4 || v.status?.addresses?.ipv4
                   || v.spec?.ipv4Request || '';
         const health = _healthFromConditions(v);
-        const colors = TOPO_COLORS.vip;
-        const sublabel = ip || '';
+        const hColor = health === 'ok' ? '#2E7D32' : health === 'deg' ? '#F9A825' : health === 'err' ? '#C62828' : '#78909C';
+        const hBg    = health === 'ok' ? '#E8F5E9' : health === 'deg' ? '#FFF8E1' : health === 'err' ? '#FFEBEE' : '#F5F5F5';
+        const lines = [];
+        if (ip) lines.push({ text: ip, color: '#1565C0' });
+        lines.push({ text: health === 'ok' ? 'Healthy' : health === 'deg' ? 'Degraded' : health === 'err' ? 'Error' : 'Unknown', color: hColor });
+        const bgImg = makeNodeSvg(name, ns || '(default)', hColor, hBg, hColor, lines);
         elements.push({ data: {
-          id, label: name, sublabel,
+          id,
           parent: `ns:${ns}`,
           type: 'vip', health,
-          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          bgImg, nodeW: SVG_NODE_W, nodeH: makeNodeSvg._lastH,
           tooltip: `VIP: ${ns}/${name}\nIP: ${ip || '(pending)'}\nHealth: ${health}`,
         }});
       }
@@ -5805,15 +5812,13 @@ const App = {
         const id    = `backend:${ns}:${name}`;
         const count = (bp.spec?.backends || []).length;
         const { health, label: hLabel } = _backendPoolHealth(name, ns);
-        const colors = TOPO_COLORS.backend;
         const expanded = _expandedPools.has(id);
-        const healthPart = hLabel || `${count} backend${count !== 1 ? 's' : ''}`;
-        const sublabel = (expanded ? '▼ ' : '▶ ') + healthPart;
+        const bgImg = _makeBackendPoolSvg(bp, expanded);
         elements.push({ data: {
-          id, label: name, sublabel,
+          id,
           parent: `ns:${ns}`,
           type: 'backend', health, expandable: true, expanded,
-          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          bgImg, nodeW: SVG_NODE_W, nodeH: makeNodeSvg._lastH,
           tooltip: `BackendPool: ${ns}/${name}\nBackends: ${count}${hLabel ? `\nHealth: ${hLabel}` : ''}\n${expanded ? 'Click to collapse' : 'Click to expand'}`,
         }});
         // If expanded, add child backend nodes (no parent — positioned outside compound)
@@ -5843,12 +5848,18 @@ const App = {
                        : rtStatus ? 'err'
                        : health;
 
-        const colors = TOPO_COLORS.service;
+        const hColor = rtHealth === 'ok' ? '#1565C0' : rtHealth === 'deg' ? '#F9A825' : rtHealth === 'err' ? '#C62828' : '#78909C';
+        const hBg    = rtHealth === 'ok' ? '#E3F2FD' : rtHealth === 'deg' ? '#FFF8E1' : rtHealth === 'err' ? '#FFEBEE' : '#F5F5F5';
+        const svcLines = [
+          { text: appType, color: '#546E7A' },
+          { text: rtStatus || (rtHealth === 'ok' ? 'Healthy' : rtHealth === 'deg' ? 'Degraded' : rtHealth === 'err' ? 'Error' : 'Unknown'), color: hColor },
+        ];
+        const bgImg = makeNodeSvg(name, ns || '(default)', hColor, hBg, hColor, svcLines);
         elements.push({ data: {
-          id, label: name, sublabel: appType,
+          id,
           parent: `ns:${ns}`,
           type: 'service', health: rtHealth,
-          bgColor: colors.bg, borderColor: colors.border, textColor: colors.text,
+          bgImg, nodeW: SVG_NODE_W, nodeH: makeNodeSvg._lastH,
           tooltip: `Service: ${ns}/${name}\nType: ${appType}${rtStatus ? `\nStatus: ${rtStatus}` : ''}`,
         }});
 
@@ -6077,52 +6088,20 @@ const App = {
         elements,
         style: [
           {
-            selector: 'node',
+            // SVG card nodes (vip, service, backend, backendNode)
+            selector: 'node[type="vip"], node[type="service"], node[type="backend"], node[type="backendNode"]',
             style: {
-              'shape': 'roundrectangle',
-              'width': 160,
-              'height': 60,
-              'background-color': 'data(bgColor)',
-              'border-color': 'data(borderColor)',
-              'border-width': 2,
-              'label': 'data(label)',
-              'text-valign': 'center',
-              'text-halign': 'center',
-              'font-size': 13,
-              'font-weight': 'bold',
-              'color': 'data(textColor)',
-              'text-wrap': 'wrap',
-              'text-max-width': 140,
-            }
-          },
-          {
-            // sublabel via ghost node trick — actually we use compound labels
-            selector: 'node[sublabel]',
-            style: {
-              'label': function(ele) {
-                return ele.data('label') + '\n' + ele.data('sublabel');
-              },
-              'font-size': 12,
-              'text-wrap': 'wrap',
-              'line-height': 1.4,
-            }
-          },
-          {
-            selector: 'node[health="deg"]',
-            style: {
-              'background-color': '#FFF8E1',
-              'border-color': '#F9A825',
-              'border-width': 2.5,
-              'color': '#E65100',
-            }
-          },
-          {
-            selector: 'node[health="err"]',
-            style: {
-              'background-color': '#FFEBEE',
-              'border-color': '#C62828',
-              'border-width': 2.5,
-              'color': '#B71C1C',
+              'shape': 'rectangle',
+              'background-color': 'transparent',
+              'background-opacity': 0,
+              'background-image': 'data(bgImg)',
+              'background-fit': 'contain',
+              'background-clip': 'none',
+              'border-width': 0,
+              'padding': 0,
+              'label': '',
+              'width': 'data(nodeW)',
+              'height': 'data(nodeH)',
             }
           },
           {
@@ -6159,26 +6138,6 @@ const App = {
               'line-color': '#2E7D32',
               'target-arrow-color': '#2E7D32',
               'width': 2,
-            }
-          },
-          {
-            // Individual backend endpoint nodes
-            selector: 'node[type="backendNode"]',
-            style: {
-              'shape': 'ellipse',
-              'width': 130,
-              'height': 34,
-              'background-color': 'data(bgColor)',
-              'border-color': 'data(borderColor)',
-              'border-width': 2,
-              'label': 'data(label)',
-              'text-valign': 'center',
-              'text-halign': 'center',
-              'font-size': 10,
-              'font-weight': 'normal',
-              'color': 'data(textColor)',
-              'text-wrap': 'wrap',
-              'text-max-width': 120,
             }
           },
           {
@@ -6286,13 +6245,15 @@ const App = {
             return id.startsWith(childPrefix) || id.startsWith(`e:pool:${poolId}->`);
           }));
           node.data('expanded', false);
-          node.data('sublabel', '▶ ' + _getPoolSublabel(bp, poolId));
+          node.data('bgImg', _makeBackendPoolSvg(bp, false));
+          node.data('nodeH', makeNodeSvg._lastH);
           node.data('tooltip', node.data('tooltip').replace('Click to collapse', 'Click to expand'));
         } else {
           // Expand: add child nodes positioned to the right of the pool, no layout re-run
           _expandedPools.add(poolId);
           node.data('expanded', true);
-          node.data('sublabel', '▼ ' + _getPoolSublabel(bp, poolId));
+          node.data('bgImg', _makeBackendPoolSvg(bp, true));
+          node.data('nodeH', makeNodeSvg._lastH);
           node.data('tooltip', node.data('tooltip').replace('Click to expand', 'Click to collapse'));
           const elements = _backendChildElements(poolId, bp);
           const parentDimmed = !!node.data('dimmed');
@@ -6300,17 +6261,18 @@ const App = {
           _cy.add(elements);
           // Position child nodes in a vertical column to the right of the pool node
           const parentPos = node.position();
-          const nodeWidth = node.outerWidth() || 120;
-          const spacing = 40;
+          const nodeWidth = node.outerWidth() || SVG_NODE_W;
           const childNodes = _cy.nodes().filter(n => {
             const id = n.id();
             const prefix = `bnode:${poolId.split(':')[1]}:${poolId.split(':').slice(2).join(':')}:`;
             return id.startsWith(prefix);
           });
+          const childH = childNodes.length ? (childNodes[0].data('nodeH') || SVG_HDR_H + 22 + 8 + 2 * SVG_ROW_H + 8) : 80;
+          const spacing = childH + 12;
           const totalH = (childNodes.length - 1) * spacing;
           childNodes.forEach((child, i) => {
             child.position({
-              x: parentPos.x + nodeWidth / 2 + 160,
+              x: parentPos.x + nodeWidth / 2 + SVG_NODE_W / 2 + 20,
               y: parentPos.y - totalH / 2 + i * spacing,
             });
           });
@@ -6318,6 +6280,20 @@ const App = {
         }
         // No dagre re-run — pool node stays in place
       });
+    }
+
+    function _makeBackendPoolSvg(bp, expanded) {
+      const ns    = bp.metadata.namespace || '';
+      const name  = bp.metadata.name;
+      const count = (bp.spec?.backends || []).length;
+      const { health, label: hLabel } = _backendPoolHealth(name, ns);
+      const hColor = health === 'ok' ? '#6A1B9A' : health === 'deg' ? '#F9A825' : health === 'err' ? '#C62828' : '#78909C';
+      const hBg    = health === 'ok' ? '#F3E5F5' : health === 'deg' ? '#FFF8E1' : health === 'err' ? '#FFEBEE' : '#F5F5F5';
+      const lines = [
+        { text: `${count} backend${count !== 1 ? 's' : ''}${hLabel ? '  (' + hLabel + ')' : ''}`, color: hColor },
+        { text: expanded ? '▼ click to collapse' : '▶ click to expand', color: '#9E9E9E' },
+      ];
+      return makeNodeSvg(name, ns || '(default)', hColor, hBg, hColor, lines);
     }
 
     function _getPoolSublabel(bp, poolId) {
