@@ -387,7 +387,7 @@ router bgp 65200
  ! Accept BGP sessions from any node in the Kind bridge subnet
  bgp listen range 172.19.0.0/16 peer-group ilb-nodes
 
- ! Upstream FRR router
+ ! Upstream BGP router
  neighbor 192.168.33.1 remote-as 65220
  neighbor 192.168.33.1 ebgp-multihop 3
  neighbor 192.168.33.1 update-source 192.168.33.24

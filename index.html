@@ -79,6 +79,116 @@
     .dgrid-row-highlighted .dgrid-node-label {
       background: rgba(var(--v-theme-primary), 0.1);
     }
+    /* Network topology diagram */
+    .net-topo-diagram {
+      display: flex;
+      flex-direction: row;
+      align-items: flex-start;
+      gap: 0;
+      padding: 8px 0;
+    }
+    .net-topo-col {
+      min-width: 220px;
+      max-width: 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .net-topo-col-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.6;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 4px;
+      padding: 0 4px;
+    }
+    .net-topo-arrow-col {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 80px;
+      padding-top: 32px;
+      gap: 4px;
+    }
+    .net-topo-arrow-col--wide {
+      min-width: 140px;
+      max-width: 200px;
+    }
+    .net-topo-routes {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-top: 6px;
+      padding: 6px 8px;
+      border: 1px dashed rgba(76,175,80,0.4);
+      border-radius: 6px;
+      background: rgba(76,175,80,0.04);
+      width: 100%;
+    }
+    .net-topo-route-entry {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex-wrap: wrap;
+    }
+    .net-topo-arrow {
+      font-size: 2rem;
+      opacity: 0.35;
+      line-height: 1;
+    }
+    .net-topo-arrow-label {
+      font-size: 0.68rem;
+      opacity: 0.5;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .net-topo-node {
+      border: 1px solid rgba(128,128,128,0.25);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: rgb(var(--v-theme-surface));
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .net-topo-node--ok    { border-color: rgba(76,175,80,0.5);  background: rgba(76,175,80,0.04); }
+    .net-topo-node--deg   { border-color: rgba(255,152,0,0.5);  background: rgba(255,152,0,0.04); }
+    .net-topo-node--err   { border-color: rgba(244,67,54,0.5);  background: rgba(244,67,54,0.04); }
+    .net-topo-node--t1    { border-left: 3px solid #1976D2; }
+    .net-topo-node--t2    { border-left: 3px solid #7B1FA2; }
+    .net-topo-node--t1t2  { border-left: 3px solid #00796B; }
+    .net-topo-node-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .net-topo-node-sub {
+      font-size: 0.72rem;
+      opacity: 0.65;
+    }
+    .net-topo-section-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      opacity: 0.5;
+      border-top: 1px solid rgba(128,128,128,0.2);
+      padding-top: 3px;
+    }
+    .net-topo-peer-session {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      flex-wrap: wrap;
+      margin-top: 2px;
+    }
     .cy-tooltip {
       position: fixed;
       background: rgba(30,30,30,0.92);
@@ -622,7 +732,7 @@
                     <template v-slot:prepend><v-icon color="blue" size="18">mdi-server</v-icon></template>
                     <template v-slot:subtitle>{{ n.metadata.labels?.['kubernetes.io/hostname'] || '' }}</template>
                     <template v-slot:append>
-                      <v-chip size="x-small" color="blue" variant="tonal">L3/L4</v-chip>
+                      <v-chip size="x-small" color="blue" variant="tonal">eBPF L3/L4</v-chip>
                     </template>
                   </v-list-item>
                 </v-list>
@@ -644,7 +754,7 @@
                     <template v-slot:prepend><v-icon color="teal" size="18">mdi-server</v-icon></template>
                     <template v-slot:subtitle>{{ n.metadata.labels?.['kubernetes.io/hostname'] || '' }}</template>
                     <template v-slot:append>
-                      <v-chip size="x-small" color="teal" variant="tonal">L3-L7</v-chip>
+                      <v-chip size="x-small" color="teal" variant="tonal">eBPF+Envoy L3-L7</v-chip>
                     </template>
                   </v-list-item>
                 </v-list>
@@ -711,8 +821,8 @@
 
           <!-- Legend -->
           <div class="d-flex align-center flex-wrap ga-2 mb-3 mt-1" style="flex-shrink:0">
-            <v-chip size="small" variant="tonal" color="blue"   prepend-icon="mdi-layers-triple">T1 — L3/L4</v-chip>
-            <v-chip size="small" variant="tonal" color="teal"   prepend-icon="mdi-layers-triple">T1-T2 — L3-L7</v-chip>
+            <v-chip size="small" variant="tonal" color="blue"   prepend-icon="mdi-layers-triple">T1 — eBPF L3/L4</v-chip>
+            <v-chip size="small" variant="tonal" color="teal"   prepend-icon="mdi-layers-triple">T1-T2 — eBPF+Envoy L3-L7</v-chip>
             <v-chip size="small" variant="tonal" color="purple" prepend-icon="mdi-layers-triple-outline">T2 — L5-L7</v-chip>
             <v-divider vertical class="mx-1" style="height:20px"></v-divider>
             <v-chip size="small" variant="tonal" color="green"  prepend-icon="mdi-ip-network">VIP</v-chip>
@@ -841,6 +951,169 @@
           </div>
 
           </div><!-- end grid view wrapper -->
+        </div>
+
+        <!-- NETWORK TOPOLOGY -->
+        <div v-if="currentView === 'clusternettopo'" style="display:flex;flex-direction:column;height:calc(100vh - 64px - 32px);">
+          <div class="d-flex align-center mb-2" style="flex-shrink:0">
+            <v-icon class="mr-2" color="primary">mdi-transit-connection-variant</v-icon>
+            <span class="text-h6">Network Topology</span>
+            <v-spacer></v-spacer>
+            <v-btn-toggle v-model="netTopoView" mandatory density="compact" variant="outlined" class="mr-3">
+              <v-btn value="diagram" size="small" prepend-icon="mdi-view-column">Diagram</v-btn>
+              <v-btn value="graph"   size="small" prepend-icon="mdi-graph">Graph</v-btn>
+            </v-btn-toggle>
+            <v-btn variant="tonal" prepend-icon="mdi-refresh" size="small" @click="loadNetworkTopology" :loading="netTopoLoading">Refresh</v-btn>
+          </div>
+
+          <!-- Legend -->
+          <div class="d-flex align-center flex-wrap ga-2 mb-3" style="flex-shrink:0">
+            <v-chip size="small" color="success"  variant="tonal" prepend-icon="mdi-check-circle">Established / OK</v-chip>
+            <v-chip size="small" color="warning"  variant="tonal" prepend-icon="mdi-alert-circle">Degraded</v-chip>
+            <v-chip size="small" color="error"    variant="tonal" prepend-icon="mdi-close-circle">Down / Error</v-chip>
+            <v-chip size="small" color="grey"     variant="tonal" prepend-icon="mdi-help-circle">Unknown</v-chip>
+          </div>
+
+          <!-- Graph view -->
+          <div v-if="netTopoView === 'graph'" style="flex:1;position:relative;">
+            <div v-if="netTopoLoading" class="d-flex justify-center align-center" style="height:200px">
+              <v-progress-circular indeterminate color="primary"></v-progress-circular>
+            </div>
+            <div id="cy-net-container" style="width:100%;height:100%;"></div>
+          </div>
+
+          <!-- Diagram view -->
+          <div v-if="netTopoView === 'diagram'" style="flex:1;overflow:auto;">
+            <div v-if="netTopoLoading" class="d-flex justify-center align-center" style="height:200px">
+              <v-progress-circular indeterminate color="primary"></v-progress-circular>
+            </div>
+            <div v-else class="net-topo-diagram">
+
+              <!-- Column: BGP Peers (external routers) -->
+              <div class="net-topo-col">
+                <div class="net-topo-col-label">
+                  <v-icon size="16" color="indigo">mdi-router-network</v-icon>
+                  BGP Peers
+                </div>
+                <div v-if="!netTopoBGPPeers.length" class="text-caption text-medium-emphasis pa-2">No BGP peer data</div>
+                <div v-for="peer in netTopoBGPPeers" :key="peer.peerAddress" class="net-topo-node"
+                     :class="'net-topo-node--' + peer.health">
+                  <div class="net-topo-node-title">
+                    <v-icon size="14" :color="peer.health === 'ok' ? 'success' : peer.health === 'deg' ? 'warning' : 'error'">
+                      {{ peer.health === 'ok' ? 'mdi-check-circle' : peer.health === 'deg' ? 'mdi-alert-circle' : 'mdi-close-circle' }}
+                    </v-icon>
+                    {{ peer.peerAddress }}
+                  </div>
+                  <div class="net-topo-node-sub">ASN {{ peer.peerASN }}</div>
+                  <div class="net-topo-node-sub mt-1" style="opacity:0.5;font-style:italic">BGP Router</div>
+                </div>
+              </div>
+
+              <!-- Arrow column T1→BGP with advertised routes -->
+              <div class="net-topo-arrow-col net-topo-arrow-col--wide">
+                <div class="net-topo-arrow-label">BGP advertise</div>
+                <div class="net-topo-arrow">&#x2190;</div>
+                <div v-if="netTopoBGPRoutes.length" class="net-topo-routes">
+                  <div v-for="route in netTopoBGPRoutes" :key="route.prefix" class="net-topo-route-entry">
+                    <v-icon size="10" color="green">mdi-ip-network</v-icon>
+                    <span class="net-topo-node-sub">{{ route.prefix }}</span>
+                    <span v-if="route.vipName" class="net-topo-node-sub" style="opacity:0.5">
+                      ({{ route.vipNs ? route.vipNs + '/' : '' }}{{ route.vipName }})
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Column: T1 / T1-T2 nodes -->
+              <div class="net-topo-col">
+                <div class="net-topo-col-label">
+                  <v-icon size="16" color="blue">mdi-layers-triple</v-icon>
+                  T1 Nodes (eBPF L3/L4)
+                </div>
+                <div v-if="!t1Nodes.length && !t1t2Nodes.length" class="text-caption text-medium-emphasis pa-2">No T1 nodes</div>
+                <template v-for="node in [...t1Nodes, ...t1t2Nodes]" :key="node.metadata.name">
+                  <div class="net-topo-node" :class="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'net-topo-node--t1t2' : 'net-topo-node--t1'">
+                    <div class="net-topo-node-title">
+                      <v-icon size="14" color="blue">mdi-server</v-icon>
+                      {{ node.metadata.name }}
+                    </div>
+                    <v-chip size="x-small" :color="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'teal' : 'blue'" variant="tonal">
+                      {{ node.metadata.labels?.['service.cilium.io/node'] || 't1' }}
+                    </v-chip>
+                    <!-- BGP sessions on this node -->
+                    <div v-if="netTopoBGPByNode[node.metadata.name]" class="mt-1">
+                      <div v-for="p in netTopoBGPByNode[node.metadata.name]" :key="p.peerAddress" class="net-topo-peer-session">
+                        <v-icon size="11" :color="p.sessionState === 'established' ? 'success' : 'error'">mdi-router-network</v-icon>
+                        <span class="net-topo-node-sub">{{ p.peerAddress }} (AS{{ p.peerASN }})</span>
+                        <v-chip size="x-small" :color="p.sessionState === 'established' ? 'success' : 'error'" variant="tonal" class="ml-1">{{ p.sessionState }}</v-chip>
+                        <span class="net-topo-node-sub ml-1" v-if="p.uptime !== '-'">up {{ p.uptime }}</span>
+                      </div>
+                    </div>
+                    <div v-else class="net-topo-node-sub mt-1">No BGP sessions</div>
+                    <!-- VIPs and services on this T1 node -->
+                    <template v-if="netTopoT1Services[node.metadata.name]?.length">
+                      <div class="net-topo-section-label mt-2">VIP</div>
+                      <div class="net-topo-peer-session"
+                           v-for="v in netTopoT1Services[node.metadata.name].filter(e=>e.kind==='vip')" :key="v.ip">
+                        <v-icon size="11" color="teal">mdi-ip-network</v-icon>
+                        <span class="net-topo-node-sub">
+                          <template v-if="v.name">{{ v.ns ? v.ns+'/' : '' }}{{ v.name }}&nbsp;</template>
+                          <span style="opacity:0.6">({{ v.ip }})</span>
+                        </span>
+                      </div>
+                      <div class="net-topo-section-label mt-1">Services</div>
+                      <div v-for="svc in netTopoT1Services[node.metadata.name].filter(e=>e.kind==='svc')"
+                           :key="svc.ns+'/'+svc.name" class="net-topo-peer-session">
+                        <v-icon size="11" :color="svc.status === 'OK' ? 'success' : svc.status === 'DEG' ? 'warning' : 'error'">
+                          {{ svc.status === 'OK' ? 'mdi-check-circle' : svc.status === 'DEG' ? 'mdi-alert-circle' : 'mdi-close-circle' }}
+                        </v-icon>
+                        <span class="net-topo-node-sub">{{ svc.ns ? svc.ns + '/' : '' }}{{ svc.name }}</span>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+              </div>
+
+              <!-- Arrow column T1→T2 -->
+              <div class="net-topo-arrow-col">
+                <div class="net-topo-arrow-label">L7 traffic</div>
+                <div class="net-topo-arrow">&#x2192;</div>
+              </div>
+
+              <!-- Column: T2 nodes (Envoy proxies) -->
+              <div class="net-topo-col">
+                <div class="net-topo-col-label">
+                  <v-icon size="16" color="purple">mdi-layers-triple-outline</v-icon>
+                  T2 Nodes (L5-L7 / Envoy)
+                </div>
+                <div v-if="!t2Nodes.length && !t1t2Nodes.length" class="text-caption text-medium-emphasis pa-2">No T2 nodes</div>
+                <template v-for="node in [...t2Nodes, ...t1t2Nodes]" :key="'t2-' + node.metadata.name">
+                  <div class="net-topo-node" :class="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'net-topo-node--t1t2' : 'net-topo-node--t2'">
+                    <div class="net-topo-node-title">
+                      <v-icon size="14" color="purple">mdi-server</v-icon>
+                      {{ node.metadata.name }}
+                    </div>
+                    <v-chip size="x-small" :color="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'teal' : 'purple'" variant="tonal">
+                      {{ node.metadata.labels?.['service.cilium.io/node'] || 't2' }}
+                    </v-chip>
+                    <!-- Envoy/T2 services on this node -->
+                    <div v-if="netTopoT2ByNode[node.metadata.name]?.services?.length" class="mt-2">
+                      <div class="net-topo-node-sub mb-1">Envoy services:</div>
+                      <div v-for="svc in netTopoT2ByNode[node.metadata.name].services" :key="svc.ns + '/' + svc.name"
+                           class="net-topo-peer-session">
+                        <v-icon size="11" :color="svc.status === 'OK' ? 'success' : svc.status === 'DEG' ? 'warning' : 'error'">
+                          {{ svc.status === 'OK' ? 'mdi-check-circle' : svc.status === 'DEG' ? 'mdi-alert-circle' : 'mdi-close-circle' }}
+                        </v-icon>
+                        <span class="net-topo-node-sub">{{ svc.ns ? svc.ns + '/' : '' }}{{ svc.name }}</span>
+                      </div>
+                    </div>
+                    <div v-else class="net-topo-node-sub mt-1">No L7 services</div>
+                  </div>
+                </template>
+              </div>
+
+            </div><!-- end net-topo-diagram -->
+          </div><!-- end diagram view -->
         </div>
 
         <!-- ACCESS LOGS -->
@@ -1080,7 +1353,7 @@
                 <v-divider></v-divider>
                 <v-list density="compact">
                   <v-list-item><template v-slot:prepend><v-chip size="x-small" color="deep-orange" variant="tonal" class="mr-2">services.labelSelector</v-chip></template><template v-slot:title><span class="text-caption">Selects LBServices in the same namespace by label — those services use this deployment's nodes</span></template></v-list-item>
-                  <v-list-item><template v-slot:prepend><v-chip size="x-small" color="blue-grey" variant="tonal" class="mr-2">nodes.labelSelectors.t1</v-chip></template><template v-slot:title><span class="text-caption">Selects which K8s nodes act as T1 (L3/L4) for these services. Empty = all T1 nodes</span></template></v-list-item>
+                  <v-list-item><template v-slot:prepend><v-chip size="x-small" color="blue-grey" variant="tonal" class="mr-2">nodes.labelSelectors.t1</v-chip></template><template v-slot:title><span class="text-caption">Selects which K8s nodes act as T1 (eBPF L3/L4) for these services. Empty = all T1 nodes</span></template></v-list-item>
                   <v-list-item><template v-slot:prepend><v-chip size="x-small" color="blue-grey" variant="tonal" class="mr-2">nodes.labelSelectors.t2</v-chip></template><template v-slot:title><span class="text-caption">Selects which K8s nodes act as T2 (L7/Envoy) for these services. Empty = all T2 nodes</span></template></v-list-item>
                   <v-list-item><template v-slot:prepend><v-chip size="x-small" color="grey" variant="tonal" class="mr-2">without LBDeployment</v-chip></template><template v-slot:title><span class="text-caption">All LBServices share all T1/T2 nodes in the cluster — LBDeployment is optional</span></template></v-list-item>
                 </v-list>
@@ -2555,7 +2828,7 @@ const App = {
     // ── Hash-based routing ────────────────────────────────────────────────
     const VALID_VIEWS = new Set([
       'dashboard','lbservices','lbvips','lbbackendpools','lbdeployments',
-      'lbippools','bgpwizard','lbstatus','bgpstatus','nodes','clustertopology','accesslogs',
+      'lbippools','bgpwizard','lbstatus','bgpstatus','nodes','clustertopology','clusternettopo','accesslogs',
       'secrets','topology','reference',
     ]);
 
@@ -2605,6 +2878,7 @@ const App = {
       { view: 'bgpstatus',        label: 'BGP Status',         icon: 'mdi-chart-line' },
       { view: 'nodes',            label: 'Nodes',              icon: 'mdi-server' },
       { view: 'clustertopology',  label: 'Deployments Topology', icon: 'mdi-graph' },
+      { view: 'clusternettopo',   label: 'Network Topology',     icon: 'mdi-transit-connection-variant' },
       { view: 'accesslogs',       label: 'Access Logs',        icon: 'mdi-text-box-search' },
       { view: 'secrets',          label: 'Secrets',            icon: 'mdi-lock' },
       { view: 'topology',         label: 'Services Topology',  icon: 'mdi-sitemap' },
@@ -2803,6 +3077,7 @@ const App = {
       else if (view === 'bgpwizard') loadBgpWizard();
       else if (view === 'nodes') loadNodes();
       else if (view === 'clustertopology') loadClusterTopology();
+      else if (view === 'clusternettopo') loadNetworkTopology();
       else if (view === 'secrets') loadSecrets();
       else if (view === 'topology') nextTick(() => loadTopology());
     }
@@ -3674,6 +3949,426 @@ const App = {
       }
     }
 
+    // ===== NETWORK TOPOLOGY =====
+    const netTopoLoading = ref(false);
+    const netTopoView = ref('diagram'); // 'diagram' | 'graph'
+    let _cyNet = null;
+
+    async function loadNetworkTopology() {
+      netTopoLoading.value = true;
+      try {
+        await Promise.all([
+          loadBGPStatus(),
+          loadNodes(),
+          lbStatusRaw.value ? Promise.resolve() : loadLBStatus(),
+        ]);
+      } finally {
+        netTopoLoading.value = false;
+        if (netTopoView.value === 'graph') nextTick(initNetTopoGraph);
+      }
+    }
+
+    function initNetTopoGraph() {
+      const container = document.getElementById('cy-net-container');
+      if (!container) return;
+      if (_cyNet) { _cyNet.destroy(); _cyNet = null; }
+
+      const elements = [];
+      const STATE_COLOR = s => s === 'established' ? '#2E7D32' : s ? '#C62828' : '#9E9E9E';
+      const NODE_W = 210;
+      const ROW_H  = 18;
+      const HDR_H  = 32;
+      const PAD    = 8;
+
+      // Build SVG card matching the diagram node style
+      // lines: [{ text, color }]
+      let _svgIdSeq = 0;
+      function makeNodeSvg(title, subtitle, accentColor, bgColor, borderColor, lines) {
+        const cpId = `cp${_svgIdSeq++}`;
+        const nLines = Math.max(lines.length, 1);
+        // chip row after header
+        const CHIP_H = 22;
+        const totalH = HDR_H + CHIP_H + PAD + nLines * ROW_H + PAD;
+        const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+        // Chip (tier label pill) — mimics Vuetify x-small chip
+        const chipW = Math.min(subtitle.length * 6 + 12, NODE_W - 2 * PAD);
+        const chipY = HDR_H + 3;
+
+        let rowsSvg = '';
+        const rowsY0 = HDR_H + CHIP_H + PAD;
+        lines.forEach((l, i) => {
+          const y0 = rowsY0 + i * ROW_H;
+          if (l.header) {
+            rowsSvg += `<line x1="${PAD}" y1="${y0 + 1}" x2="${NODE_W - PAD}" y2="${y0 + 1}" stroke="#ccc" stroke-width="0.5"/>`;
+            rowsSvg += `<text x="${PAD + 2}" y="${y0 + ROW_H * 0.72}" font-family="sans-serif" font-size="8" font-weight="700" fill="#888" letter-spacing="0.5">${esc(l.text.toUpperCase())}</text>`;
+          } else {
+            const cy = y0 + ROW_H * 0.45;
+            const ty = y0 + ROW_H * 0.72;
+            const dotC = l.color || '#9E9E9E';
+            rowsSvg += `<circle cx="${PAD + 5}" cy="${cy}" r="3.5" fill="${dotC}"/>`;
+            rowsSvg += `<text x="${PAD + 14}" y="${ty}" font-family="sans-serif" font-size="10" fill="#424242">${esc(l.text)}</text>`;
+          }
+        });
+
+        makeNodeSvg._lastH = totalH;
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${NODE_W}" height="${totalH}">
+  <defs><clipPath id="${cpId}"><rect width="${NODE_W}" height="${totalH}" rx="8" ry="8"/></clipPath></defs>
+  <rect width="${NODE_W}" height="${totalH}" rx="8" ry="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5"/>
+  <rect width="${NODE_W}" height="${HDR_H}" fill="${accentColor}" clip-path="url(#${cpId})"/>
+  <rect x="0" y="0" width="5" height="${totalH}" fill="${accentColor}" clip-path="url(#${cpId})"/>
+  <text x="14" y="${HDR_H * 0.62}" font-family="sans-serif" font-size="12" font-weight="bold" fill="#fff">${esc(title)}</text>
+  <rect x="${PAD}" y="${chipY}" width="${chipW}" height="16" rx="8" ry="8" fill="${accentColor}" opacity="0.15" stroke="${accentColor}" stroke-width="1"/>
+  <text x="${PAD + chipW / 2}" y="${chipY + 11}" font-family="sans-serif" font-size="9" font-weight="600" fill="${accentColor}" text-anchor="middle">${esc(subtitle)}</text>
+  <line x1="${PAD}" y1="${HDR_H + CHIP_H}" x2="${NODE_W - PAD}" y2="${HDR_H + CHIP_H}" stroke="${borderColor}" stroke-width="0.5" opacity="0.4"/>
+  ${rowsSvg}
+</svg>`);
+      }
+
+      // BGP peer nodes — no session detail here, that belongs to T1 nodes
+      for (const peer of netTopoBGPPeers.value) {
+        const health = peer.health;
+        const accent = health === 'ok' ? '#2E7D32' : health === 'deg' ? '#F9A825' : '#C62828';
+        const bg     = health === 'ok' ? '#F1F8E9' : health === 'deg' ? '#FFFDE7' : '#FFEBEE';
+        const border = accent;
+        const lines  = [{ text: 'BGP Router', color: '#757575' }];
+        const bgImg  = makeNodeSvg(peer.peerAddress, `ASN ${peer.peerASN}  ·  BGP Router`, accent, bg, border, lines);
+        elements.push({ data: {
+          id: `bgp-${peer.peerAddress}`,
+          type: 'bgppeer',
+          health,
+          bgImg,
+          nodeW: NODE_W, nodeH: makeNodeSvg._lastH,
+          tooltip: `BGP Peer: ${peer.peerAddress}\nASN: ${peer.peerASN}\nSessions: ${peer.sessions.length}`,
+        }});
+      }
+
+      // T1 / T1-T2 / T2 nodes
+      for (const n of ciliumNodes.value) {
+        const tier = n.metadata?.labels?.['service.cilium.io/node'] || 'other';
+        if (tier === 'other') continue;
+        const accent = tier === 't1' ? '#1565C0' : tier === 't2' ? '#6A1B9A' : '#00695C';
+        const bg     = tier === 't1' ? '#E3F2FD' : tier === 't2' ? '#F3E5F5' : '#E0F2F1';
+        const border = accent;
+        const sub    = tier === 't1' ? 'T1 — L3/L4 (eBPF)' : tier === 't2' ? 'T2 — L5-L7 (Envoy)' : 'T1-T2 — L3-L7 (eBPF+Envoy)';
+        const lines  = [];
+
+        if (tier === 't1' || tier === 't1-t2') {
+          lines.push({ text: 'BGP', header: true });
+          const sessions = netTopoBGPByNode.value[n.metadata.name] || [];
+          if (sessions.length) {
+            for (const p of sessions) {
+              lines.push({
+                text: `→ ${p.peerAddress}  ${p.sessionState}${p.uptime !== '-' ? '  up '+p.uptime : ''}`,
+                color: p.sessionState === 'established' ? '#2E7D32' : '#C62828',
+              });
+            }
+          } else {
+            lines.push({ text: 'No BGP sessions', color: '#9E9E9E' });
+          }
+        }
+        if (tier === 't1' || tier === 't1-t2') {
+          const t1entries = netTopoT1Services.value[n.metadata.name] || [];
+          const vipEntries = t1entries.filter(e => e.kind === 'vip');
+          const svcEntries = t1entries.filter(e => e.kind === 'svc');
+          if (vipEntries.length) {
+            lines.push({ text: 'VIP', header: true });
+            for (const v of vipEntries) {
+              const label = v.name
+                ? `${v.ns ? v.ns+'/' : ''}${v.name}  (${v.ip})`
+                : v.ip;
+              lines.push({ text: label, color: '#00796B' });
+            }
+          }
+          if (svcEntries.length) {
+            lines.push({ text: 'Services', header: true });
+            for (const s of svcEntries) {
+              lines.push({
+                text: `${s.ns ? s.ns+'/' : ''}${s.name}`,
+                color: s.status === 'OK' ? '#2E7D32' : s.status === 'DEG' ? '#F9A825' : '#C62828',
+              });
+            }
+          }
+        }
+        if (tier === 't2' || tier === 't1-t2') {
+          lines.push({ text: 'Envoy services', header: true });
+          const svcs = netTopoT2ByNode.value[n.metadata.name]?.services || [];
+          if (svcs.length) {
+            for (const s of svcs) {
+              lines.push({
+                text: `${s.ns ? s.ns+'/' : ''}${s.name}`,
+                color: s.status === 'OK' ? '#2E7D32' : s.status === 'DEG' ? '#F9A825' : '#C62828',
+              });
+            }
+          } else {
+            lines.push({ text: 'No L7 services', color: '#9E9E9E' });
+          }
+        }
+
+        const bgImg = makeNodeSvg(n.metadata.name, sub, accent, bg, border, lines);
+        elements.push({ data: {
+          id: `node-${n.metadata.name}`,
+          type: 'ciliumnode',
+          tier,
+          bgImg,
+          nodeW: NODE_W, nodeH: makeNodeSvg._lastH,
+          tooltip: `${n.metadata.name} (${tier})\n${sub}`,
+        }});
+      }
+
+      // BGP peer → T1/T1-T2 edges (one per session)
+      for (const p of bgpPeers.value) {
+        const peerId = `bgp-${p.peerAddress}`;
+        const nodeId = `node-${p.node}`;
+        const color = STATE_COLOR(p.sessionState);
+        // Routes advertised from this node
+        const nodeRoutes = netTopoBGPRoutes.value.filter(r => r.advertisingNodes.includes(p.node));
+        const routeLabel = nodeRoutes.map(r => `${r.prefix}${r.vipName ? ' ('+( r.vipNs ? r.vipNs+'/' : '')+r.vipName+')' : ''}`).join('\n');
+        elements.push({ classes: 'edge-bgp', data: {
+          id: `e-bgp-${p.peerAddress}-${p.node}`,
+          source: peerId,   // BGP peer left, T1 right — arrow points T1→peer (source-arrow)
+          target: nodeId,
+          label: routeLabel || p.sessionState,
+          sessionState: p.sessionState,
+          edgeColor: color,
+          uptime: p.uptime,
+          tooltip: `${p.node} → ${p.peerAddress}\nState: ${p.sessionState}\nUptime: ${p.uptime}\n${routeLabel}`,
+        }});
+      }
+
+      // T1/T1-T2 → T2 edges per L7 service
+      const t2Svc = netTopoT2ByNode.value;
+      const t1NodeIds = [...t1Nodes.value, ...t1t2Nodes.value].map(n => n.metadata.name);
+      const t2NodeIds = [...t2Nodes.value, ...t1t2Nodes.value].map(n => n.metadata.name);
+      if (t1NodeIds.length && t2NodeIds.length) {
+        // Collect unique service names across all T2 nodes
+        const allT2Svcs = new Set();
+        for (const svcs of Object.values(t2Svc)) {
+          for (const s of svcs.services) allT2Svcs.add(`${s.ns}/${s.name}`);
+        }
+        for (const t1 of t1NodeIds) {
+          for (const t2 of t2NodeIds) {
+            if (t1 === t2) continue;
+            const svcsOnT2 = t2Svc[t2]?.services || [];
+            if (!svcsOnT2.length) continue;
+            const label = svcsOnT2.map(s => `${s.ns ? s.ns+'/' : ''}${s.name}`).join('\n');
+            const anyDeg = svcsOnT2.some(s => s.status !== 'OK');
+            elements.push({ data: {
+              id: `e-t1t2-${t1}-${t2}`,
+              source: `node-${t1}`,
+              target: `node-${t2}`,
+              label,
+              edgeColor: anyDeg ? '#F9A825' : '#1565C0',
+              tooltip: `L7 traffic: ${t1} → ${t2}\n${label}`,
+            }});
+          }
+        }
+      }
+
+      _cyNet = cytoscape({
+        container,
+        elements,
+        style: [
+          {
+            selector: 'node[type="bgppeer"], node[type="ciliumnode"]',
+            style: {
+              'shape': 'rectangle',
+              'background-color': 'transparent',
+              'background-opacity': 0,
+              'background-image': 'data(bgImg)',
+              'background-fit': 'contain',
+              'background-clip': 'none',
+              'border-width': 0,
+              'padding': 0,
+              'label': '',
+              'width': 'data(nodeW)',
+              'height': 'data(nodeH)',
+            }
+          },
+          {
+            selector: 'edge',
+            style: {
+              'line-color': 'data(edgeColor)',
+              'target-arrow-color': 'data(edgeColor)',
+              'target-arrow-shape': 'triangle',
+              'curve-style': 'bezier',
+              'label': 'data(label)',
+              'font-size': 9,
+              'text-wrap': 'wrap',
+              'text-background-color': '#ffffff',
+              'text-background-opacity': 0.85,
+              'text-background-padding': '2px',
+              'edge-text-rotation': 'autorotate',
+              'width': 1.5,
+              'color': 'data(edgeColor)',
+            }
+          },
+          {
+            // BGP edges: arrow at source end (T1 advertises to peer), no target arrow
+            selector: 'edge.edge-bgp',
+            style: {
+              'target-arrow-shape': 'none',
+              'source-arrow-shape': 'triangle',
+              'source-arrow-color': 'data(edgeColor)',
+            }
+          },
+        ],
+        layout: {
+          name: 'dagre',
+          rankDir: 'LR',
+          nodeSep: 50,
+          rankSep: 160,
+          padding: 40,
+          animate: false,
+        },
+      });
+
+      // Tooltip
+      if (!document.getElementById('cy-net-tooltip')) {
+        const tip = document.createElement('div');
+        tip.id = 'cy-net-tooltip';
+        tip.className = 'cy-tooltip';
+        tip.style.display = 'none';
+        document.body.appendChild(tip);
+      }
+      const netTip = document.getElementById('cy-net-tooltip');
+      _cyNet.on('mouseover', 'node, edge', evt => {
+        const t = evt.target.data('tooltip') || evt.target.data('label');
+        if (!t) return;
+        netTip.textContent = t;
+        netTip.style.display = 'block';
+      });
+      _cyNet.on('mousemove', evt => {
+        netTip.style.left = (evt.originalEvent.clientX + 14) + 'px';
+        netTip.style.top  = (evt.originalEvent.clientY + 14) + 'px';
+      });
+      _cyNet.on('mouseout', () => { netTip.style.display = 'none'; });
+    }
+
+    // Computed: per-node BGP peer map  { nodeName -> [peer, ...] }
+    const netTopoBGPByNode = computed(() => {
+      const map = {};
+      for (const p of bgpPeers.value) {
+        (map[p.node] = map[p.node] || []).push(p);
+      }
+      return map;
+    });
+
+    // Computed: per-node T2 Envoy state from lbStatus
+    // Returns { nodeName -> { ok: n, total: n, services: [{name, ns, status}] } }
+    // { nodeName -> [{ name, ns, vip, status }] } — all services run on T1/T1-T2 nodes
+    const netTopoT1Services = computed(() => {
+      const svcs = lbStatusRaw.value?.services || [];
+      const allT1 = [...t1Nodes.value, ...t1t2Nodes.value];
+      // Build IP → {name, ns} from lbvips
+      const vipByIP = {};
+      for (const v of (resources.lbvips || [])) {
+        const ip = v.status?.ipv4 || v.status?.addresses?.ipv4 || v.spec?.ipv4Request;
+        if (ip) vipByIP[ip] = { name: v.metadata.name, ns: v.metadata.namespace || '' };
+      }
+      const result = {};
+      for (const n of allT1) result[n.metadata.name] = [];
+      // Deduplicate VIPs per node (multiple services may share a VIP)
+      const seenVip = {};
+      for (const n of allT1) seenVip[n.metadata.name] = new Set();
+      for (const svc of svcs) {
+        if (!svc.t1NodeStatus) continue;
+        const status = svc.t1NodeStatus.status;
+        const vipIP  = svc.vip || '';
+        const vipMeta = vipByIP[vipIP] || null;
+        for (const n of allT1) {
+          const nn = n.metadata.name;
+          if (vipIP && !seenVip[nn].has(vipIP)) {
+            seenVip[nn].add(vipIP);
+            result[nn].push({
+              kind: 'vip',
+              ip: vipIP,
+              name: vipMeta?.name || '',
+              ns: vipMeta?.ns || '',
+            });
+          }
+          result[nn].push({
+            kind: 'svc',
+            name: svc.name, ns: svc.namespace || '', status,
+          });
+        }
+      }
+      return result;
+    });
+
+    const netTopoT2ByNode = computed(() => {
+      const map = {};
+      const svcs = lbStatusRaw.value?.services || [];
+      const T2_TYPE_RE = /http|https|tls/i;
+      for (const svc of svcs) {
+        if (!svc.t2NodeStatus) continue;
+        if (!svc.t2NodeStatus.status) continue;        // empty status = not a real T2 service
+        if (!T2_TYPE_RE.test(svc.type)) continue;     // tcpProxy / udpProxy
+        // t2NodeStatus has ok/total but not per-node breakdown — attribute to all t2/t1-t2 nodes
+        const allT2 = [...t2Nodes.value, ...t1t2Nodes.value];
+        for (const n of allT2) {
+          const name = n.metadata.name;
+          if (!map[name]) map[name] = { services: [] };
+          map[name].services.push({
+            name: svc.name,
+            ns: svc.namespace,
+            status: svc.t2NodeStatus.status,
+            ok: svc.t2NodeStatus.ok,
+            total: svc.t2NodeStatus.total,
+          });
+        }
+      }
+      return map;
+    });
+
+    // Unique BGP peers (external routers) across all nodes
+    const netTopoBGPPeers = computed(() => {
+      const seen = new Set();
+      const result = [];
+      for (const p of bgpPeers.value) {
+        const key = `${p.peerAddress}:${p.peerASN}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const sessions = bgpPeers.value.filter(x => x.peerAddress === p.peerAddress);
+          const allUp = sessions.every(x => x.sessionState === 'established');
+          const anyUp = sessions.some(x => x.sessionState === 'established');
+          result.push({
+            peerAddress: p.peerAddress,
+            peerASN: p.peerASN,
+            sessions,
+            health: allUp ? 'ok' : anyUp ? 'deg' : 'err',
+          });
+        }
+      }
+      return result;
+    });
+
+    // Deduplicated BGP routes with VIP name annotation
+    // Returns [{ prefix, advertisingNodes, vipName, vipNs }]
+    const netTopoBGPRoutes = computed(() => {
+      const vips = resources.lbvips || [];
+      // Build IP → {name, ns} lookup from VIP status
+      const vipByIP = {};
+      for (const v of vips) {
+        const ip = v.status?.ipv4 || v.status?.addresses?.ipv4 || v.spec?.ipv4Request;
+        if (ip) vipByIP[ip] = { name: v.metadata.name, ns: v.metadata.namespace || '' };
+      }
+      const seen = {};
+      for (const r of bgpRoutes.value) {
+        if (!r.prefix) continue;
+        if (!seen[r.prefix]) {
+          const prefixIP = r.prefix.split('/')[0];
+          const vip = vipByIP[prefixIP] || null;
+          seen[r.prefix] = { prefix: r.prefix, advertisingNodes: [], vipName: vip?.name || null, vipNs: vip?.ns || null };
+        }
+        if (r.node && !seen[r.prefix].advertisingNodes.includes(r.node)) {
+          seen[r.prefix].advertisingNodes.push(r.node);
+        }
+      }
+      return Object.values(seen).sort((a, b) => a.prefix.localeCompare(b.prefix));
+    });
+
     // ===== BGP WIZARD =====
     const bgpWizard = reactive({
       loading: false, saving: false, error: '', success: '',
@@ -4141,8 +4836,8 @@ const App = {
 
       // ── Build tier groups: T1, T1-T2, T2 ────────────────────────────
       const TIER_DEFS = [
-        { tier: 't1',   label: 'T1 Nodes',    sublabel: 'VIP + all services · L3/L4', color: '#1565C0', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1' },
-        { tier: 't1-t2',label: 'T1-T2 Nodes', sublabel: 'VIP + proxy · L3-L7',        color: '#00796B', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1-t2' },
+        { tier: 't1',   label: 'T1 Nodes',    sublabel: 'VIP + all services · eBPF L3/L4', color: '#1565C0', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1' },
+        { tier: 't1-t2',label: 'T1-T2 Nodes', sublabel: 'VIP + proxy · eBPF+Envoy L3-L7',        color: '#00796B', icon: 'mdi-layers-triple', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't1-t2' },
         { tier: 't2',   label: 'T2 Nodes',    sublabel: 'L7 proxy · http/https/tls',  color: '#6A1B9A', icon: 'mdi-layers-triple-outline', match: n => n.metadata?.labels?.['service.cilium.io/node'] === 't2' },
       ];
 
@@ -4269,8 +4964,8 @@ const App = {
 
       // Swimlane background rectangles (non-interactive)
       const tierDefs = [
-        { id: 'band-t1',   x: BAND.t1.x,   y: 0, w: BAND.t1.w,   h: totalH, label: 'T1  —  L3/L4',    color: '#BBDEFB', border: '#1565C0', textColor: '#1565C0' },
-        { id: 'band-t1t2', x: BAND.t1t2.x, y: 0, w: BAND.t1t2.w, h: totalH, label: 'T1-T2  —  L3-L7', color: '#B2DFDB', border: '#00695C', textColor: '#00695C' },
+        { id: 'band-t1',   x: BAND.t1.x,   y: 0, w: BAND.t1.w,   h: totalH, label: 'T1  —  eBPF L3/L4',    color: '#BBDEFB', border: '#1565C0', textColor: '#1565C0' },
+        { id: 'band-t1t2', x: BAND.t1t2.x, y: 0, w: BAND.t1t2.w, h: totalH, label: 'T1-T2  —  eBPF+Envoy L3-L7', color: '#B2DFDB', border: '#00695C', textColor: '#00695C' },
         { id: 'band-t2',   x: BAND.t2.x,   y: 0, w: BAND.t2.w,   h: totalH, label: 'T2  —  L7 proxy',  color: '#E1BEE7', border: '#6A1B9A', textColor: '#6A1B9A' },
       ];
       for (const b of tierDefs) {
@@ -5566,6 +6261,10 @@ const App = {
       loadCurrentView();
     });
 
+    watch(netTopoView, (v) => {
+      if (v === 'graph') nextTick(initNetTopoGraph);
+    });
+
     watch(accessLogAutoRefresh, (on) => {
       clearInterval(accessLogTimer);
       accessLogTimer = null;
@@ -5678,6 +6377,7 @@ const App = {
       bgpPeerHeaders, bgpRouteHeaders, loadBGPStatus,
       // Nodes
       ciliumNodes, nodesLoading, t1Nodes, t1t2Nodes, t2Nodes, otherNodes, loadNodes,
+      netTopoLoading, netTopoView, loadNetworkTopology, netTopoBGPByNode, netTopoT1Services, netTopoT2ByNode, netTopoBGPPeers, netTopoBGPRoutes,
       clusterTopoLoading, clusterTopoView, clusterTopoTiers, clusterTopoNsColor, loadClusterTopology,
       deploymentGrid, deploymentGridHighlight,
       renderClusterTopo, cyClusterFit,
