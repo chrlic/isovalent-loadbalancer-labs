@@ -1242,6 +1242,10 @@
             <span>⊙ source IP</span>
             <span>🍪 cookie</span>
             <span>≡ header</span>
+            <v-divider vertical class="mx-1" style="height:14px;"></v-divider>
+            <span style="font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">Auth:</span>
+            <span>🔑 basic</span>
+            <span>🪙 jwt</span>
           </div>
         </div>
 
@@ -5878,10 +5882,15 @@ const App = {
           const vipId = `vip:${ns}:${vipRef}`;
           const vipExists = vips.some(v => v.metadata.name === vipRef && v.metadata.namespace === ns);
           if (vipExists) {
+            const authCfg = Object.values(apps)[0]?.auth || {};
+            let authLabel = '';
+            if (authCfg.basic) authLabel = '🔑 basic';
+            else if (authCfg.jwt) authLabel = '🪙 jwt';
             elements.push({ data: {
               id: `e:vip:${vipId}->${id}`,
               source: vipId, target: id,
-              label: '', edgeType: 'vip-svc',
+              label: authLabel, edgeType: 'vip-svc',
+              tooltip: authLabel ? `Auth: ${authLabel}` : '',
             }});
           }
         }
