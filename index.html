@@ -1236,6 +1236,13 @@
           <v-card rounded="lg" elevation="2" style="flex:1;min-height:0;overflow:hidden;">
             <div id="cy-container" style="width:100%;height:100%;display:block;"></div>
           </v-card>
+          <!-- Legend -->
+          <div class="d-flex align-center flex-wrap ga-3 mt-2" style="font-size:0.78rem;opacity:0.75;">
+            <span style="font-weight:600;text-transform:uppercase;letter-spacing:0.05em;opacity:0.6;">Persistence:</span>
+            <span>⊙ source IP</span>
+            <span>🍪 cookie</span>
+            <span>≡ header</span>
+          </div>
         </div>
 
         <!-- REFERENCE -->
@@ -5850,8 +5857,10 @@ const App = {
 
         const hColor = rtHealth === 'ok' ? '#1565C0' : rtHealth === 'deg' ? '#F9A825' : rtHealth === 'err' ? '#C62828' : '#78909C';
         const hBg    = rtHealth === 'ok' ? '#E3F2FD' : rtHealth === 'deg' ? '#FFF8E1' : rtHealth === 'err' ? '#FFEBEE' : '#F5F5F5';
+        const port = svc.spec?.port;
+
         const svcLines = [
-          { text: appType, color: '#546E7A' },
+          { text: port ? `${appType}  :${port}` : appType, color: '#546E7A' },
           { text: rtStatus || (rtHealth === 'ok' ? 'Healthy' : rtHealth === 'deg' ? 'Degraded' : rtHealth === 'err' ? 'Error' : 'Unknown'), color: hColor },
         ];
         const bgImg = makeNodeSvg(name, ns || '(default)', hColor, hBg, hColor, svcLines);
@@ -5892,19 +5901,27 @@ const App = {
             const { health: bpHealth } = _backendPoolHealth(bpName, ns);
             const edgeDashed = bpHealth === 'deg' || bpHealth === 'err' ? true : undefined;
 
-            // Route label
-            const hosts = (route.matchHostNames || []).join(', ');
-            const pathPart = route.matchPathValue ? `${route.matchPathType || ''} ${route.matchPathValue}`.trim() : '';
+            // Route label — raw spec uses route.match.hostNames / route.match.path
+            const hosts = (route.match?.hostNames || []).join(', ');
+            const rawPath = route.match?.path || {};
+            const pathPart = rawPath.prefix ? `prefix ${rawPath.prefix}` : rawPath.exact ? `exact ${rawPath.exact}` : '';
             const edgeLabel = [hosts, pathPart].filter(Boolean).join('\n');
+
+            const pb = route.persistentBackend;
+            let stickyLabel = '';
+            if (pb?.sourceIP) stickyLabel = '⊙ source IP';
+            else if (pb?.cookies?.length) stickyLabel = `🍪 ${pb.cookies[0].name ? pb.cookies[0].name : 'cookie'}`;
+            else if (pb?.headers?.length) stickyLabel = `≡ ${pb.headers.map(h => h.name).join(', ')}`;
 
             const edata = {
               id: `e:svc:${id}->${bpId}:${bpName}`,
               source: id, target: bpId,
-              label: edgeLabel,
+              label: [edgeLabel, stickyLabel].filter(Boolean).join('\n'),
               edgeType: 'svc-backend',
-              tooltip: edgeLabel ? `Route:\n${edgeLabel}` : '',
+              tooltip: [edgeLabel ? `Route:\n${edgeLabel}` : '', stickyLabel].filter(Boolean).join('\n'),
             };
             if (edgeDashed) edata.dashed = true;
+            if (stickyLabel) edata.sticky = true;
             elements.push({ data: edata });
           }
           // tcpProxy / udpProxy: direct backendRef
@@ -6272,7 +6289,7 @@ const App = {
           const totalH = (childNodes.length - 1) * spacing;
           childNodes.forEach((child, i) => {
             child.position({
-              x: parentPos.x + nodeWidth / 2 + SVG_NODE_W / 2 + 20,
+              x: parentPos.x + nodeWidth / 2 + SVG_NODE_W / 2 + 80,
               y: parentPos.y - totalH / 2 + i * spacing,
             });
           });
@@ -6289,10 +6306,13 @@ const App = {
       const { health, label: hLabel } = _backendPoolHealth(name, ns);
       const hColor = health === 'ok' ? '#6A1B9A' : health === 'deg' ? '#F9A825' : health === 'err' ? '#C62828' : '#78909C';
       const hBg    = health === 'ok' ? '#F3E5F5' : health === 'deg' ? '#FFF8E1' : health === 'err' ? '#FFEBEE' : '#F5F5F5';
+      const algoKey = bp.spec?.loadbalancing?.algorithm ? Object.keys(bp.spec.loadbalancing.algorithm)[0] : null;
+      const algoLabel = algoKey === 'roundRobin' ? 'round robin' : algoKey === 'leastConnections' ? 'least connections' : algoKey === 'consistentHashing' ? 'consistent hashing' : null;
       const lines = [
         { text: `${count} backend${count !== 1 ? 's' : ''}${hLabel ? '  (' + hLabel + ')' : ''}`, color: hColor },
-        { text: expanded ? '▼ click to collapse' : '▶ click to expand', color: '#9E9E9E' },
       ];
+      if (algoLabel) lines.push({ text: `lb: ${algoLabel}`, color: '#546E7A' });
+      lines.push({ text: expanded ? '▼ click to collapse' : '▶ click to expand', color: '#9E9E9E' });
       return makeNodeSvg(name, ns || '(default)', hColor, hBg, hColor, lines);
     }
 
