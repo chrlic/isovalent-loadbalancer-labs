@@ -1,0 +1,44 @@
+apiVersion: isovalent.com/v1alpha1
+kind: LBVIP
+metadata:
+  namespace: basics
+  name: simple
+spec:
+  ipv4Request: "172.20.0.10"
+
+--- 
+
+apiVersion: isovalent.com/v1alpha1
+kind: LBService
+metadata:
+  namespace: basics
+  name: simple-service
+spec:
+  vipRef:
+    name: simple
+  port: 8080
+  applications:
+    httpProxy:
+      routes:
+        - backendRef:
+            name: simple-backends
+
+---
+
+# Assumes there are VM's running with specified addresses
+
+apiVersion: isovalent.com/v1alpha1
+kind: LBBackendPool
+metadata:
+  namespace: basics
+  name: simple-backends
+spec:
+  backendType: IP
+  backends:
+    - ip: 192.168.39.221
+      port: 8080
+    - ip: 192.168.39.222
+      port: 8080
+  healthCheck:
+    http:
+      path: /healthz

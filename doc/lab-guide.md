@@ -606,27 +606,34 @@ docker network create --subnet 172.21.0.0/24 ilb-backends
 Run as many backends as needed, each with a fixed IP:
 
 ```bash
-docker run -d --name backend1 --network ilb-backends --ip 172.21.0.10 --restart unless-stopped ilb-backend
-docker run -d --name backend2 --network ilb-backends --ip 172.21.0.11 --restart unless-stopped ilb-backend
+docker run -d --name backend1 --network ilb-backends --ip 172.21.0.11 --restart unless-stopped ilb-backend
+docker run -d --name backend2 --network ilb-backends --ip 172.21.0.12 --restart unless-stopped ilb-backend
 ```
 
 The IP persists across `docker stop`/`start`. It is only lost on `docker rm` (recreate with the
 same `--ip` to restore it).
 
-Make the `ilb-backends` bridge reachable from the Kind cluster. Find the bridge name and add a
-forwarding rule (similar to section 5c):
+Make the `ilb-backends` bridge reachable from the Kind cluster. Find the bridge name and add
+forwarding and masquerade rules (similar to section 5c). The MASQUERADE rule is required so that
+reply packets from backends are routed back via the host — backend containers only know their own
+bridge gateway, not the Kind subnet.
 
 ```bash
-# Find the bridge interface for the ilb-backends network
-docker network inspect ilb-backends --format '{{.Id}}' | cut -c1-12
-# Bridge will be br-<id>, e.g. br-a1b2c3d4e5f6
-
-BACKENDS_BRIDGE=br-a1b2c3d4e5f6   # replace with actual bridge name
-KIND_BRIDGE=br-2ef19183f3a9        # replace with Kind bridge name (from section 5c)
+BACKENDS_BRIDGE=$(docker network inspect ilb-backends --format '{{.Id}}' | cut -c1-12)
+BACKENDS_BRIDGE="br-${BACKENDS_BRIDGE}"
+KIND_BRIDGE=br-2ef19183f3a9   # Kind bridge name from section 5c
 
 # Allow forwarding between Kind and the backends bridge
-sudo iptables -I FORWARD 1 -i $KIND_BRIDGE -o $BACKENDS_BRIDGE -j ACCEPT
-sudo iptables -I FORWARD 1 -i $BACKENDS_BRIDGE -o $KIND_BRIDGE -j ACCEPT
+sudo iptables -I FORWARD 1 -i "$KIND_BRIDGE"     -o "$BACKENDS_BRIDGE" -j ACCEPT
+sudo iptables -I FORWARD 1 -i "$BACKENDS_BRIDGE" -o "$KIND_BRIDGE"     -j ACCEPT
+
+# Masquerade traffic entering the backends network so replies are routed back via the host
+# (backend containers only know their own bridge gateway, not the Kind subnet)
+sudo iptables -t nat -A POSTROUTING -o "$BACKENDS_BRIDGE" -d 172.21.0.0/24 -j MASQUERADE
+
+# Docker adds raw PREROUTING DROP rules per container IP (anti-spoofing).
+# Allow traffic from the Kind bridge to bypass those drops.
+sudo iptables -t raw -I PREROUTING 1 -i "$KIND_BRIDGE" -d 172.21.0.0/24 -j ACCEPT
 ```
 
 Reference the container IPs in the `LBBackendPool` (section 9):
@@ -635,15 +642,15 @@ Reference the container IPs in the `LBBackendPool` (section 9):
 spec:
   backendType: IP
   backends:
-    - ip: 172.21.0.10
-      port: 8080
-      weight: 1
     - ip: 172.21.0.11
       port: 8080
       weight: 1
+    - ip: 172.21.0.12
+      port: 8080
+      weight: 1
   healthCheck:
-    path: /healthz
-    port: 8080
+    http:
+      path: /healthz
 ```
 
 ### Option B: External VM backends

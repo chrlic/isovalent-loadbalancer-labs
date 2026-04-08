@@ -1,0 +1,73 @@
+apiVersion: isovalent.com/v1alpha1
+kind: LBVIP
+metadata:
+  namespace: auth
+  name: auth-vip
+spec:
+  ipv4Request: "172.20.0.11"
+
+--- 
+
+apiVersion: isovalent.com/v1alpha1
+kind: LBService
+metadata:
+  namespace: auth
+  name: simple-service
+spec:
+  vipRef:
+    name: auth-vip
+  port: 8080
+  applications:
+    httpProxy:
+      routes:
+        - backendRef:
+            name: list-backends
+          match:
+            path:
+              exact: /list
+        - backendRef:
+            name: simple-backends
+      auth:
+        basic:
+          users:
+            secretRef:
+              name: auth-users
+---
+
+apiVersion: isovalent.com/v1alpha1
+kind: LBBackendPool
+metadata:
+  namespace: auth
+  name: simple-backends
+spec:
+  backendType: IP
+  backends:
+    - ip: 172.21.0.11
+      port: 8080
+      weight: 1
+    - ip: 172.21.0.12
+      port: 8080
+      weight: 1
+  healthCheck:
+    http:
+      path: /healthz
+
+---
+
+apiVersion: isovalent.com/v1alpha1
+kind: LBBackendPool
+metadata:
+  namespace: auth
+  name: list-backends
+spec:
+  backendType: IP
+  backends:
+    - ip: 172.21.0.13
+      port: 8080
+      weight: 1
+    - ip: 172.21.0.14
+      port: 8080
+      weight: 2
+  healthCheck:
+    http:
+      path: /healthz
