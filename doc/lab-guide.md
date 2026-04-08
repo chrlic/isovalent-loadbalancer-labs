@@ -52,7 +52,7 @@ and all the routing fixes required to make it work in this topology.
 
 **BGP peering chain:**
 ```
-  T1 node (ASN 64512)  ──eBGP──►  Host FRR (ASN 65200)  ──eBGP──►  Upstream FRR (ASN 65220)
+  T1 node (ASN 64512)  ──eBGP──►  Host FRR (ASN 65200)  ──eBGP──►  Upstream router (ASN 65220)
   172.19.0.5                       172.19.0.1 / 192.168.33.24        192.168.33.1
   advertises VIP /32s              relays VIP /32s upstream           installs routes, reaches VIPs
 ```
@@ -68,7 +68,7 @@ and all the routing fixes required to make it work in this topology.
 | T1 node                | 172.19.0.5             | kind-worker, L3/L4                      |
 | T2 nodes               | 172.19.0.3, .0.2       | kind-worker2/3, L5-L7/Envoy             |
 | VIP pool               | 172.20.0.0/24          | BGP-advertised as /32 host routes       |
-| Upstream BGP router    | 192.168.33.1 ASN 65220 | FRR in network infrastructure           |
+| Upstream BGP router    | 192.168.33.1 ASN 65220 | Router in network infrastructure        |
 | ILB local ASN          | 64512                  | Advertised from T1 node                 |
 | Backend VMs            | 192.168.39.221/222     | External, port 8080                     |
 | External client        | 192.168.33.10          | Test node                               |
@@ -345,8 +345,8 @@ router. This also mirrors how a real network would work.
 
 **BGP topology:**
 ```
-  T1 node              Host FRR             Upstream BGP router
-  ASN 64512            ASN 65200            ASN 65220
+  T1 node               Host FRR              Upstream BGP router
+  ASN 64512             ASN 65200             ASN 65220
   172.19.0.5  ──eBGP──► 172.19.0.1  ──eBGP──► 192.168.33.1
   (Kind bridge)         (bridge GW)           (infra router)
   advertises            relays VIP /32s
@@ -522,7 +522,146 @@ no_proxy=172.20.0.0/24,localhost,127.0.0.1
 
 ---
 
-## 6. IP Pool and VIP
+## 6. Configure BGP
+
+> **Configure BGP before creating VIPs.** Once an LBVIP is allocated, ILB immediately
+> tries to advertise it via BGP. Having the session established first ensures VIPs are
+> advertised without delay.
+
+BGP peering is configured via four CRDs applied together:
+
+```yaml
+apiVersion: isovalent.com/v1alpha1
+kind: IsovalentBFDProfile
+metadata:
+  name: ilb-profile
+spec:
+  detectMultiplier: 3
+  minimumTTL: 255
+  receiveIntervalMilliseconds: 300
+  transmitIntervalMilliseconds: 300
+---
+apiVersion: isovalent.com/v1
+kind: IsovalentBGPAdvertisement
+metadata:
+  name: ilb-advertisement
+  labels:
+    advertise: ilb
+spec:
+  advertisements:
+  - advertisementType: Service
+    service:
+      addresses:
+      - LoadBalancerIP
+    selector:
+      matchExpressions:
+        - key: loadbalancer.isovalent.com/vip-name
+          operator: Exists
+---
+apiVersion: isovalent.com/v1
+kind: IsovalentBGPPeerConfig
+metadata:
+  name: ilb-peer-config
+spec:
+  bfdProfileRef: ilb-profile
+  families:
+    - afi: ipv4
+      safi: unicast
+      advertisements:
+        matchLabels:
+          advertise: ilb
+  ebgpMultihop: 3
+  timers:
+    connectRetryTimeSeconds: 1
+---
+apiVersion: isovalent.com/v1
+kind: IsovalentBGPClusterConfig
+metadata:
+  name: router-bgp
+spec:
+  bgpInstances:
+    - name: instance0
+      localASN: 64512
+      peers:
+        - name: peer0
+          peerAddress: 172.19.0.1
+          peerASN: 65200
+          peerConfigRef:
+            name: ilb-peer-config
+  nodeSelector:
+    matchExpressions:
+    - key: service.cilium.io/node
+      operator: In
+      values:
+      - t1
+      - t1-t2
+```
+
+Apply:
+```bash
+kubectl apply -f bgp.yaml
+```
+
+This creates:
+- **IsovalentBFDProfile** — BFD liveness detection (300ms intervals, TTL 255, multiplier 3)
+- **IsovalentBGPPeerConfig** — peer config referencing BFD profile, eBGP multihop 3
+- **IsovalentBGPAdvertisement** — advertises `LoadBalancerIP` addresses for all LBVIPs
+- **IsovalentBGPClusterConfig** — peers with `172.19.0.1` (host FRR, ASN 65200) from T1 nodes (local ASN 64512)
+
+### Host FRR configuration
+
+The full host FRR config is in section 5b. Key points:
+
+- ILB T1 nodes connect to `172.19.0.1` (Kind bridge gateway). Host FRR accepts any T1/T1-T2
+  IP via `bgp listen range 172.19.0.0/16 peer-group ilb-nodes` — no fixed node IP needed.
+- Host FRR (ASN 65200) relays VIP `/32` routes to the upstream router (`192.168.33.1`).
+- VIP host routes are installed in the kernel automatically (`proto bgp`).
+
+> **`ebgp-multihop 3` is required** on the ILB side. The BGP session from T1 to the bridge
+> gateway traverses the Kind/Docker bridge and exceeds eBGP's default TTL of 1.
+
+### Upstream FRR router configuration
+
+On the upstream FRR router (`192.168.33.1`), peer with the host FRR:
+
+```
+router bgp 65220
+  router-id 192.168.33.1
+  neighbor 192.168.33.24 remote-as 65200
+  neighbor 192.168.33.24 ebgp-multihop 3
+  !
+  address-family ipv4 unicast
+    neighbor 192.168.33.24 activate
+  exit-address-family
+!
+! Route to Kind bridge subnet — needed to reach T1 next-hop in VIP route advertisements
+ip route 172.19.0.0/16 192.168.33.24
+```
+
+> Peer address is `192.168.33.24` (host physical NIC) at ASN `65200` (host FRR).
+> The static route to `172.19.0.0/16` is needed so the upstream router can forward traffic
+> to the T1 node next-hop (`172.19.0.5`) carried in the VIP `/32` advertisements.
+
+Verify peering:
+```bash
+cilium bgp peers
+# Expected: kind-worker   64512   65200   172.19.0.1   established
+
+cilium bgp routes advertised
+# Expected: 172.20.0.x/32 routes listed
+
+sudo vtysh -c "show bgp summary"
+# Expected: 172.19.0.5 (T1) and 192.168.33.1 (upstream) both Established
+
+ip route show | grep "proto bgp"
+# Expected: 172.20.0.1 and 172.20.0.2 via 172.19.0.5 proto bgp
+```
+
+---
+
+---
+
+## 7. IP Pool and VIP
 
 ### LBIPPool — choosing the VIP subnet
 
@@ -572,7 +711,7 @@ kubectl get lbvip first -o jsonpath='{.status.addresses}'
 
 ---
 
-## 7. Backend Servers (nginx)
+## 8. Backend Servers (nginx)
 
 The `backend/` directory in this repo contains a universal nginx backend image that supports
 both HTTP and HTTPS and returns diagnostic information (hostname, local IP, protocol, path,
@@ -722,139 +861,6 @@ spec:
 Apply:
 ```bash
 kubectl apply -f backend.yaml
-```
-
----
-
-## 8. Configure BGP
-
-BGP peering is configured via four CRDs applied together:
-
-```yaml
-apiVersion: isovalent.com/v1alpha1
-kind: IsovalentBFDProfile
-metadata:
-  name: ilb-profile
-spec:
-  detectMultiplier: 3
-  minimumTTL: 255
-  receiveIntervalMilliseconds: 300
-  transmitIntervalMilliseconds: 300
----
-apiVersion: isovalent.com/v1
-kind: IsovalentBGPAdvertisement
-metadata:
-  name: ilb-advertisement
-  labels:
-    advertise: ilb
-spec:
-  advertisements:
-  - advertisementType: Service
-    service:
-      addresses:
-      - LoadBalancerIP
-    selector:
-      matchExpressions:
-        - key: loadbalancer.isovalent.com/vip-name
-          operator: Exists
----
-apiVersion: isovalent.com/v1
-kind: IsovalentBGPPeerConfig
-metadata:
-  name: ilb-peer-config
-spec:
-  bfdProfileRef: ilb-profile
-  families:
-    - afi: ipv4
-      safi: unicast
-      advertisements:
-        matchLabels:
-          advertise: ilb
-  ebgpMultihop: 3
-  timers:
-    connectRetryTimeSeconds: 1
----
-apiVersion: isovalent.com/v1
-kind: IsovalentBGPClusterConfig
-metadata:
-  name: router-bgp
-spec:
-  bgpInstances:
-    - name: instance0
-      localASN: 64512
-      peers:
-        - name: peer0
-          peerAddress: 172.19.0.1
-          peerASN: 65200
-          peerConfigRef:
-            name: ilb-peer-config
-  nodeSelector:
-    matchExpressions:
-    - key: service.cilium.io/node
-      operator: In
-      values:
-      - t1
-      - t1-t2
-```
-
-Apply:
-```bash
-kubectl apply -f bgp.yaml
-```
-
-This creates:
-- **IsovalentBFDProfile** — BFD liveness detection (300ms intervals, TTL 255, multiplier 3)
-- **IsovalentBGPPeerConfig** — peer config referencing BFD profile, eBGP multihop 3
-- **IsovalentBGPAdvertisement** — advertises `LoadBalancerIP` addresses for all LBVIPs
-- **IsovalentBGPClusterConfig** — peers with `172.19.0.1` (host FRR, ASN 65200) from T1 nodes (local ASN 64512)
-
-### Host FRR configuration
-
-The full host FRR config is in section 5b. Key points:
-
-- ILB T1 nodes connect to `172.19.0.1` (Kind bridge gateway). Host FRR accepts any T1/T1-T2
-  IP via `bgp listen range 172.19.0.0/16 peer-group ilb-nodes` — no fixed node IP needed.
-- Host FRR (ASN 65200) relays VIP `/32` routes to the upstream router (`192.168.33.1`).
-- VIP host routes are installed in the kernel automatically (`proto bgp`).
-
-> **`ebgp-multihop 3` is required** on the ILB side. The BGP session from T1 to the bridge
-> gateway traverses the Kind/Docker bridge and exceeds eBGP's default TTL of 1.
-
-### Upstream FRR router configuration
-
-On the upstream FRR router (`192.168.33.1`), peer with the host FRR:
-
-```
-router bgp 65220
-  router-id 192.168.33.1
-  neighbor 192.168.33.24 remote-as 65200
-  neighbor 192.168.33.24 ebgp-multihop 3
-  !
-  address-family ipv4 unicast
-    neighbor 192.168.33.24 activate
-  exit-address-family
-!
-! Route to Kind bridge subnet — needed to reach T1 next-hop in VIP route advertisements
-ip route 172.19.0.0/16 192.168.33.24
-```
-
-> Peer address is `192.168.33.24` (host physical NIC) at ASN `65200` (host FRR).
-> The static route to `172.19.0.0/16` is needed so the upstream router can forward traffic
-> to the T1 node next-hop (`172.19.0.5`) carried in the VIP `/32` advertisements.
-
-Verify peering:
-```bash
-cilium bgp peers
-# Expected: kind-worker   64512   65200   172.19.0.1   established
-
-cilium bgp routes advertised
-# Expected: 172.20.0.x/32 routes listed
-
-sudo vtysh -c "show bgp summary"
-# Expected: 172.19.0.5 (T1) and 192.168.33.1 (upstream) both Established
-
-ip route show | grep "proto bgp"
-# Expected: 172.20.0.1 and 172.20.0.2 via 172.19.0.5 proto bgp
 ```
 
 ---
