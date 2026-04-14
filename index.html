@@ -1036,6 +1036,7 @@
                     <div class="net-topo-node-title">
                       <v-icon size="14" color="blue">mdi-server</v-icon>
                       {{ node.metadata.name }}
+                      <span class="net-topo-node-sub ml-1" style="opacity:0.55;font-weight:400">{{ node.spec?.addresses?.find(a => a.type === 'InternalIP')?.ip }}</span>
                     </div>
                     <v-chip size="x-small" :color="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'teal' : 'blue'" variant="tonal">
                       {{ node.metadata.labels?.['service.cilium.io/node'] || 't1' }}
@@ -1092,6 +1093,7 @@
                     <div class="net-topo-node-title">
                       <v-icon size="14" color="purple">mdi-server</v-icon>
                       {{ node.metadata.name }}
+                      <span class="net-topo-node-sub ml-1" style="opacity:0.55;font-weight:400">{{ node.spec?.addresses?.find(a => a.type === 'InternalIP')?.ip }}</span>
                     </div>
                     <v-chip size="x-small" :color="node.metadata.labels?.['service.cilium.io/node'] === 't1-t2' ? 'teal' : 'purple'" variant="tonal">
                       {{ node.metadata.labels?.['service.cilium.io/node'] || 't2' }}
@@ -4064,7 +4066,9 @@ const App = {
         const bg     = tier === 't1' ? '#E3F2FD' : tier === 't2' ? '#F3E5F5' : '#E0F2F1';
         const border = accent;
         const sub    = tier === 't1' ? 'T1 — L3/L4 (eBPF)' : tier === 't2' ? 'T2 — L5-L7 (Envoy)' : 'T1-T2 — L3-L7 (eBPF+Envoy)';
+        const nodeIP = n.spec?.addresses?.find(a => a.type === 'InternalIP')?.ip;
         const lines  = [];
+        if (nodeIP) lines.push({ text: nodeIP, color: '#546E7A' });
 
         if (tier === 't1' || tier === 't1-t2') {
           lines.push({ text: 'BGP', header: true });

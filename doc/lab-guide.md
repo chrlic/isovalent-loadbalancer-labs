@@ -260,6 +260,14 @@ enterprise:
     enabled: false
     offlineMode:
       enabled: false
+hubble:
+  enabled: true
+  relay:
+    enabled: true
+  ui:
+    enabled: true
+    service:
+      type: NodePort   # accessible from outside the Kind cluster
 operator:
   replicas: 1
 ```
@@ -269,6 +277,39 @@ operator:
 ```bash
 helm install ilb isovalent/cilium --version 1.18.7 -f values.yaml -n kube-system
 ```
+
+### Hubble UI access
+
+After install, find the NodePort assigned to the Hubble UI service:
+
+```bash
+kubectl get svc -n kube-system hubble-ui
+```
+
+Then open `http://<host-ip>:<nodePort>` in a browser. If the host IP is not directly reachable,
+use port-forwarding instead:
+
+```bash
+kubectl port-forward -n kube-system svc/hubble-ui 12000:80 --address 0.0.0.0
+```
+
+And open `http://<host-ip>:12000`.
+
+Verify Hubble is running:
+
+```bash
+cilium hubble port-forward &
+hubble status
+hubble observe
+```
+
+> **Enabling Hubble on an existing installation:** If ILB is already installed without Hubble,
+> add the `hubble:` block to `values.yaml` and run `helm upgrade` instead of `helm install`:
+> ```bash
+> helm upgrade ilb isovalent/cilium --version 1.18.7 -f values.yaml -n kube-system \
+>   --set enterprise.dnsProxyHA.enabled=false \
+>   --set enterprise.dnsProxyHA.offlineMode.enabled=false
+> ```
 
 > **DSR vs SNAT:** `mode: dsr` applies to the T1 (BPF) → T2 (Envoy) forwarding leg, where IPIP
 > encapsulation carries the original client IP. However, T2 (Envoy) always performs **SNAT** when
