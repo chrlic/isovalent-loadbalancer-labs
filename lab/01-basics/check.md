@@ -1,6 +1,6 @@
 cilium lb bgp routes
 
-np_proxy="*"
+no_proxy="*"
 
 curl http://172.20.0.10:8080/
 

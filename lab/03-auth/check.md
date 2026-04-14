@@ -1,4 +1,4 @@
-np_proxy="*"
+no_proxy="*"
 
 curl http://172.20.0.11:8080/
 
