@@ -1,0 +1,40 @@
+debug:
+  enabled: true
+  verbose: "envoy datapath"
+bpf:
+  monitorAggregation: "none"
+  masquerade: true
+  ctAccounting: true
+  lbAlgorithmAnnotation: true
+  lbModeAnnotation: true
+envoy:
+  enabled: true
+  dnsPolicy: ClusterFirstWithHostNet
+  debug:
+    admin:
+      enabled: true
+  nodeSelector:
+    service.cilium.io/node: t2
+envoyConfig:
+  enabled: true
+loadBalancer:
+  acceleration: disabled
+  dsrDispatch: ipip
+  mode: dsr
+routingMode: native
+autoDirectNodeRoutes: true
+ipv4NativeRoutingCIDR: 10.0.0.0/8
+kubeProxyReplacement: true
+k8sServiceHost: auto
+enterprise:
+  featureGate:
+    minimumMaturity: Alpha
+  bgpControlPlane:
+    enabled: true
+    enableServiceHealthChecking: true
+  bfd:
+    enabled: true
+  loadbalancer:
+    enabled: true
+operator:
+  replicas: 1
